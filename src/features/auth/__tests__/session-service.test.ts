@@ -82,6 +82,27 @@ describe('SessionService.login', () => {
   });
 });
 
+describe('login ulang', () => {
+  it('memakai nama login tersimpan; akun berbeda ditolak sebelum sesi disimpan', async () => {
+    const { svc, kv } = setup([tokenReply(1), tokenReply(1), tokenReply(2)], { pending: 0 });
+    await svc.login('mandor', 'pw');
+    expect(await svc.reauthenticate('pw')).toMatchObject({ user: { id: 1 } });
+    await kv.set(TOKEN_KEYS.access, 'lama');
+    await expect(svc.reauthenticate('pw', 'orang.lain')).rejects.toMatchObject({ code: 'pending_other_user' });
+    expect(await kv.get(TOKEN_KEYS.access)).toBe('lama');
+    expect((await svc.restore())?.user.id).toBe(1);
+  });
+
+  it('sesi versi lama tanpa nama login tersimpan: nama login diminta', async () => {
+    const { svc, kv } = setup([tokenReply(1), tokenReply(1)]);
+    await svc.login('mandor', 'pw');
+    await kv.remove(SESSION_KEYS.login);
+    await expect(svc.reauthenticate('pw')).rejects.toMatchObject({ message: 'Nama pengguna wajib diisi.' });
+    expect(await svc.reauthenticate('pw', ' mandor ')).toMatchObject({ user: { id: 1 } });
+    expect(await svc.loginName()).toBe('mandor');
+  });
+});
+
 describe('PIN', () => {
   it('format 4–6 angka', async () => {
     const { svc } = setup();

@@ -1,5 +1,5 @@
 import { useNetInfo } from '@react-native-community/netinfo';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/Button';
@@ -42,6 +42,11 @@ export default function SyncScreen() {
   const rejected = useTableQuery(PENDING_WATCH_TABLES, () => listRejected(services.db));
   const lastSyncAt = useTableQuery(['app_meta'], () => getMeta(services.db, META_KEYS.lastSyncAt));
   const [password, setPassword] = useState('');
+  const [loginName, setLoginName] = useState('');
+  const [knownLogin, setKnownLogin] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    void services.session.loginName().then(setKnownLogin);
+  }, [services]);
   const [reauthError, setReauthError] = useState<string | null>(null);
   const [reauthBusy, setReauthBusy] = useState(false);
   const [serverOpen, setServerOpen] = useState(false);
@@ -53,7 +58,8 @@ export default function SyncScreen() {
     setReauthBusy(true);
     setReauthError(null);
     try {
-      await services.session.reauthenticate(password);
+      await services.session.reauthenticate(password, knownLogin ? undefined : loginName);
+      setKnownLogin(knownLogin ?? loginName.trim());
       setPassword('');
       await services.sync();
     } catch (e) {
@@ -87,8 +93,17 @@ export default function SyncScreen() {
             {t('sync.reauthTitle')}
           </Txt>
           <Txt>{t('sync.reauthHint')}</Txt>
+          {knownLogin === null && (
+            <TextField label={t('auth.login')} value={loginName} onChangeText={setLoginName} autoCapitalize="none" autoCorrect={false} />
+          )}
           <TextField label={t('auth.password')} value={password} onChangeText={setPassword} secureTextEntry error={reauthError ?? undefined} />
-          <Button icon="login" label={t('sync.reauthSubmit')} busy={reauthBusy} disabled={!password} onPress={() => void reauthenticate()} />
+          <Button
+            icon="login"
+            label={t('sync.reauthSubmit')}
+            busy={reauthBusy}
+            disabled={!password || (knownLogin === null && !loginName.trim())}
+            onPress={() => void reauthenticate()}
+          />
         </Card>
       )}
 

@@ -104,7 +104,10 @@ export class SessionService {
     return { user: parsed.data, hasPin: (await this.d.kv.get(SESSION_KEYS.pin)) != null };
   }
 
-  async login(login: string, password: string): Promise<StoredSession> {
+  /**
+   * @param expectedUserId bila diisi (login ulang), akun lain ditolak SEBELUM sesi disimpan.
+   */
+  async login(login: string, password: string, expectedUserId?: number): Promise<StoredSession> {
     const device = this.d.device();
     let res;
     try {
@@ -119,6 +122,10 @@ export class SessionService {
       if (err instanceof NetworkError) throw new SessionError('offline', 'Tidak bisa menghubungi server. Login pertama butuh koneksi.');
       if (err instanceof ApiError && err.status === 401) throw new SessionError('invalid_credentials', 'Login atau password salah');
       throw new SessionError('server_error', err instanceof Error ? err.message : 'Kesalahan server');
+    }
+
+    if (expectedUserId != null && res.user.id !== expectedUserId) {
+      throw new SessionError('pending_other_user', 'Akun berbeda dengan pengguna aktif. Login ulang memakai akun yang sama.');
     }
 
     const previous = this.d.lastUserId();
@@ -139,13 +146,13 @@ export class SessionService {
    * Token server habis (refresh ditolak): login ulang dengan password untuk pengguna yang
    * sama, tanpa mengganggu PIN dan data offline.
    */
-  async reauthenticate(password: string): Promise<StoredSession> {
-    const login = await this.d.kv.get(SESSION_KEYS.login);
+  async reauthenticate(password: string, loginOverride?: string): Promise<StoredSession> {
+    // Sesi dari versi lama (sebelum nama login disimpan) → nama login diminta dari pengguna.
+    const login = loginOverride?.trim() || (await this.d.kv.get(SESSION_KEYS.login));
     const current = await this.restore();
-    if (!login || !current) throw new SessionError('invalid_credentials', 'Sesi tidak ditemukan. Silakan login ulang.');
-    const s = await this.login(login, password);
-    if (s.user.id !== current.user.id) throw new SessionError('pending_other_user', 'Akun berbeda dengan pengguna aktif.');
-    return s;
+    if (!current) throw new SessionError('invalid_credentials', 'Sesi tidak ditemukan. Silakan login ulang.');
+    if (!login) throw new SessionError('invalid_credentials', 'Nama pengguna wajib diisi.');
+    return this.login(login, password, current.user.id);
   }
 
   /** Nama login pengguna aktif. */
