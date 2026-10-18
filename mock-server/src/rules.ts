@@ -133,6 +133,14 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
         return { ok: false, reason: 'upkeep_not_accepted', flags };
       }
       if (!exists(store, 'product', p.product_id)) return { ok: false, reason: 'unknown_product', flags };
+      // Hitung ulang batas dosis di server: over-dose yang tidak ditandai HP ditolak.
+      const up = upkeep.item.payload as { activity_id: number; realized_ha: number | null };
+      const rule = store
+        .listMaster<{ id: number; activity_id: number; product_id: number; dose_per_ha: number; tolerance_pct: number }>('dosage_rule')
+        .find((r) => r.activity_id === up.activity_id && r.product_id === p.product_id);
+      if (rule && up.realized_ha && p.qty > rule.dose_per_ha * up.realized_ha * (1 + rule.tolerance_pct / 100) + 1e-9 && !p.over_dose) {
+        return { ok: false, reason: 'over_dose_unflagged', flags };
+      }
       if (p.over_dose) flags.push('over_dose');
       return { ok: true, flags };
     }

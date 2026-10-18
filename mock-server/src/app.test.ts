@@ -278,6 +278,28 @@ describe('transaksi', () => {
     assert.deepEqual(store.transactions.get(first.mobile_uuid)?.flags, ['unsynced_ticket']);
   });
 
+  it('material: over-dose wajib ditandai; yang ditandai masuk approval', async () => {
+    const { access_token, user } = await login('mandor.rawat');
+    const att = checkIn(user.id, 4, 4);
+    const up = {
+      type: 'upkeep',
+      mobile_uuid: randomUUID(),
+      meta: meta(user.id),
+      payload: { work_date: today, activity_id: 2, block_id: 1, employee_ids: [4], hk: 1, realized_ha: 2, realized_trees: null, photo_id: null },
+    };
+    // aturan seed: kegiatan 2 + produk 1 = 1.5 L/ha, toleransi 10% → batas 3.3 L untuk 2 ha
+    const mat = (qty: number, over: boolean) => ({
+      type: 'material_usage',
+      mobile_uuid: randomUUID(),
+      meta: meta(user.id),
+      payload: { upkeep_uuid: up.mobile_uuid, product_id: 1, qty, uom: 'L', over_dose: over, approval_note: over ? 'gulma lebat' : null },
+    });
+    const r = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [att, up, mat(3.3, false), mat(4, false), mat(4, true)] }, access_token)).json,
+    );
+    assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['accepted', 'accepted', 'accepted', 'over_dose_unflagged', 'accepted']);
+  });
+
   it('payload tidak valid ditolak per item, tidak menggagalkan batch', async () => {
     const { access_token, user } = await login();
     const broken = { ...checkIn(user.id, 2, 2), payload: { work_date: 'kemarin' } };
