@@ -3,7 +3,7 @@
     "name": "Xerpium Sawit",
     "slug": "xerpium-sawit-mobile",
     "scheme": "xerpiumsawit",
-    "version": "0.9.1",
+    "version": "0.9.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -36,7 +36,7 @@
         "android.permission.RECORD_AUDIO"
       ],
       "allowBackup": false,
-      "versionCode": 10
+      "versionCode": 11
     },
     "plugins": [
       "expo-router",

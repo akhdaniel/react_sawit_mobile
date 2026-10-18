@@ -389,6 +389,18 @@ export const id = {
     off: 'Mati',
     none: 'Tidak tersedia',
   },
+  server: {
+    title: 'Alamat server',
+    hint: 'Ganti bila Wi-Fi kantor atau alamat server berubah. Data di HP tidak terhapus; antrean akan dikirim ke alamat baru.',
+    test: 'Uji koneksi',
+    saveSync: 'Simpan & sinkron',
+    ok: 'Server terjangkau ({ms} ms)',
+    unreachable: 'Server tidak terjangkau dari HP ini — pastikan satu jaringan dengan server',
+    timeout: 'Server tidak merespons',
+    not_xsm: 'Alamat terjangkau tetapi bukan server Xerpium',
+    invalid: 'URL server tidak valid',
+    edit: 'Ketuk untuk mengganti',
+  },
   printer: {
     title: 'Printer Bluetooth',
     current: 'Printer terpilih',

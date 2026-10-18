@@ -13,6 +13,7 @@ import { SessionError } from '@/features/auth/session-service';
 import { useSession } from '@/features/auth/session-store';
 import { useSecurity } from '@/features/security/security-store';
 import { useTrustedTime } from '@/features/security/useRiskWarnings';
+import { ServerSheet } from '@/features/server/ServerSheet';
 import { t } from '@/i18n/id';
 import { isCompromised } from '@/lib/guard';
 import { nfcEnabled, nfcSupported } from '@/lib/nfc';
@@ -27,6 +28,7 @@ export default function AccountScreen() {
   const time = useTrustedTime();
   const counts = useTableQuery(MASTER_ENTITIES, () => countMaster(services.db));
   const [checking, setChecking] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
   const [nfc, setNfc] = useState<'ready' | 'off' | 'none' | null>(null);
   useEffect(() => {
     void nfcSupported().then(async (ok) => setNfc(!ok ? 'none' : (await nfcEnabled()) ? 'ready' : 'off'));
@@ -75,7 +77,13 @@ export default function AccountScreen() {
         <ListRow icon="cellphone" label={t('account.deviceId')} description={services.device.deviceId} />
         <ListRow icon="identifier" tone="accent" label={t('account.deviceShort')} value={services.device.deviceShort} />
         <ListRow icon="information-outline" label={t('account.appVersion')} value={services.device.appVersion} />
-        <ListRow icon="server-network" tone="accent" label={t('account.server')} description={services.getBaseUrl()} />
+        <ListRow
+          icon="server-network"
+          tone="accent"
+          label={t('account.server')}
+          description={`${services.getBaseUrl()}\n${t('server.edit')}`}
+          onPress={() => setServerOpen(true)}
+        />
         <ListRow
           icon="clock-check-outline"
           tone={time.source === 'server' ? 'success' : 'danger'}
@@ -127,6 +135,7 @@ export default function AccountScreen() {
       </Card>
 
       <Button kind="danger" icon="logout" label={t('auth.logout')} onPress={logout} />
+      {serverOpen && <ServerSheet visible onClose={() => setServerOpen(false)} />}
     </Screen>
   );
 }

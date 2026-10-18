@@ -15,6 +15,7 @@ import { listRejected } from '@/db/repositories/outbox';
 import { getPendingSummary, PENDING_WATCH_TABLES } from '@/db/repositories/pending';
 import { TRANSACTION_TYPES } from '@/db/schema';
 import { SessionError } from '@/features/auth/session-service';
+import { ServerSheet } from '@/features/server/ServerSheet';
 import { needsReauth, useSync } from '@/features/sync/sync-store';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
@@ -43,6 +44,7 @@ export default function SyncScreen() {
   const [password, setPassword] = useState('');
   const [reauthError, setReauthError] = useState<string | null>(null);
   const [reauthBusy, setReauthBusy] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
 
   const online = net.isConnected !== false;
   const reauth = needsReauth(lastResult);
@@ -118,6 +120,9 @@ export default function SyncScreen() {
               </Txt>
             </View>
           ))}
+          {lastResult.errors.some((e) => e.kind === 'offline') && (
+            <Button kind="outline" icon="server-network" label={t('server.title')} onPress={() => setServerOpen(true)} />
+          )}
           {lastResult.push.invalid.length > 0 && (
             <>
               <SectionTitle>{t('sync.invalidTitle')}</SectionTitle>
@@ -160,6 +165,7 @@ export default function SyncScreen() {
           </Card>
         </>
       )}
+      {serverOpen && <ServerSheet visible onClose={() => setServerOpen(false)} />}
     </Screen>
   );
 }
