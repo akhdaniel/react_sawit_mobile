@@ -36,7 +36,14 @@ export function createSyncApi(api: ApiClient, filePart: PhotoFilePart = rnPhotoF
       }),
     async uploadPhoto(p) {
       const form = new FormData();
-      form.append('file', (await filePart(p)) as Blob, p.localUri.endsWith('.png') ? `${p.id}.png` : `${p.id}.jpg`);
+      const part = await filePart(p);
+      if (typeof Blob !== 'undefined' && part instanceof Blob) {
+        form.append('file', part, p.localUri.endsWith('.png') ? `${p.id}.png` : `${p.id}.jpg`);
+      } else {
+        // React Native: objek {uri, name, type} WAJIB tanpa argumen nama file ketiga —
+        // argumen ketiga membuatnya diperlakukan sebagai Blob → "Unsupported FormDataPart".
+        form.append('file', part as unknown as Blob);
+      }
       form.append('mobile_uuid_photo', p.id);
       form.append('sha256', p.sha256);
       form.append('transaction_uuid', p.transactionUuid ?? '');
