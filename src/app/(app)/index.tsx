@@ -48,9 +48,7 @@ export default function HomeScreen() {
             label={t(m.label)}
             badge={m.key === 'sync' && pending > 0 ? String(pending) : undefined}
             last={i === items.length - 1}
-            onPress={() =>
-              m.key === 'sync' ? router.push('/sync') : router.push({ pathname: '/module/[key]', params: { key: m.key } })
-            }
+            onPress={() => (m.route ? router.push(m.route) : router.push({ pathname: '/module/[key]', params: { key: m.key } }))}
           />
         ))}
       </Card>

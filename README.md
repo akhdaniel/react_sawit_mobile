@@ -4,14 +4,17 @@ Aplikasi Android lapangan **offline-first** untuk perkebunan kelapa sawit (mando
 Semua data lapangan disimpan di SQLite terenkripsi di HP dan disinkronkan ke ERP Xerpium (Odoo 18)
 melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 
-> **Status: Tahap 3 — Sync engine.**
+> **Status: Tahap 4 — Absensi & penugasan.**
 > - Tahap 1 (fondasi): Expo SDK 58, DB terenkripsi + migrasi, kontrak zod bersama, trigger append-only, mock server.
 > - Tahap 2: login online, PIN offline + kunci otomatis, menu per peran, trusted-time (modul native jam monotonic),
 >   deteksi root/emulator/fake GPS + banner, HTTP client (timeout/retry/backoff) dan refresh token.
 > - Tahap 3: sync engine (push antrean idempoten, unggah foto, polling posted, delta master berhalaman,
 >   rencana kerja, heartbeat), sinkron latar (Wi-Fi), sinkron otomatis saat Wi-Fi tersambung, layar Sinkron.
+> - Tema "Xerpium Violet" (header gradien, kartu membulat, uji kontras WCAG).
+> - Tahap 4: absensi per kemandoran dengan foto kamera dalam aplikasi, cek polygon afdeling, koreksi
+>   append-only, dan penugasan berdasarkan rencana kerja / di luar rencana.
 >
-> Modul lapangan (absensi, panen, SPB, perawatan, approval) dikerjakan mulai tahap 4.
+> Berikutnya: panen (tahap 5), SPB + printer (6), perawatan + material (7), approval + laporan (8).
 
 ## Prasyarat
 
@@ -177,6 +180,43 @@ dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
 - **Latar:** `expo-background-task` (WorkManager) tiap ±60 menit, hanya di Wi-Fi, best effort (Android bisa menunda).
   Task didefinisikan di `src/sync/background-task.ts` dan diimpor dari `app/_layout.tsx`.
 
+## Absensi & penugasan (tahap 4)
+
+**Absensi** (`app/(app)/attendance.tsx`), per kemandoran (gang) di afdeling pengguna:
+
+| Aksi | Ketukan | Catatan |
+|---|---|---|
+| Absen masuk semua yang belum | 2–3 | Tombol → (alasan bila terlambat) → foto grup → tersimpan |
+| Per pekerja: hadir / terlambat | 2–3 | Wajib foto dari kamera aplikasi |
+| Per pekerja: sakit / izin / mangkir | 2 | Tanpa foto |
+| Absen pulang semua | 1 | Hanya pekerja yang hadir dan belum pulang |
+| Koreksi status | 2–3 | Baris baru dengan `correction_of`, baris asal tidak diubah |
+| Pekerja dari kemandoran lain | 3+ | Cari nama/NIK; tetap berlaku aturan satu gang per hari |
+
+**Aturan** (`db/repositories/attendance.ts`, juga dicek ulang oleh server):
+
+- **Baris efektif** = tidak ditolak server dan tidak digantikan koreksi.
+- **Hadir** = check-in efektif berstatus `hadir`/`terlambat`. Sakit, izin, dan mangkir tidak dihitung hadir.
+- **Satu pekerja hanya check-in di satu gang per hari.** Check-out butuh check-in hadir di gang yang sama, dan hanya sekali.
+- **Default `terlambat`** bila waktu check-in lewat `workStartTime` (default 06:30, zona estate). Alasan wajib diisi.
+- **Di luar polygon afdeling** → `outside_afdeling = true`. Transaksi tidak diblokir, server memberi flag ke asisten.
+- **Kolom anti-fraud** (lokasi + `mocked`, `rooted`, trusted time, `time_source`) dibuat oleh `features/common/tx-factory.ts`
+  untuk setiap transaksi. Posisi GPS diambil segar (≤ 60 detik) saat menyimpan.
+
+**Foto bukti** (`features/camera/CameraCapture.tsx`, `lib/photo.ts`):
+
+- Hanya dari kamera aplikasi (VisionCamera v5); izin galeri diblokir di manifest.
+- Dikompres ke sisi terpanjang ≤ 1280 px, JPEG 0.6. Kualitas diturunkan bertahap sampai ≤ 300 KB,
+  lalu bila perlu resolusi diturunkan ke 960 px.
+- Disimpan di folder dokumen privat app. SHA-256 dihitung dari file final dan tidak bisa diubah (trigger `PHOTO_IMMUTABLE`).
+- Satu foto grup dipakai untuk semua baris absensi massal. Foto ditautkan ke baris pertama dan diunggah saat sinkron.
+
+**Penugasan** (`app/(app)/assignment/`):
+
+- Pilih rencana kerja hari ini untuk gang tersebut, atau "di luar rencana" (kegiatan + blok + alasan wajib).
+- Lalu pilih pekerja dari daftar yang sudah absen hadir dan belum pulang.
+- Pekerja tanpa check-in hadir tidak bisa ditugaskan.
+
 ## Arsitektur
 
 ```
@@ -197,6 +237,9 @@ src/
   features/menu/   menu per peran
   features/security/ store integritas & hook peringatan
   features/sync/   store status sinkron
+  features/attendance/ aksi absensi & penugasan, pilihan gang
+  features/camera/ kamera dalam aplikasi
+  features/common/ tx-factory (kolom anti-fraud transaksi)
   sync/            engine, api (SyncApi), api-client, http, background-task, contract
   i18n/id.ts       semua teks UI bahasa Indonesia
   theme/           warna kontras tinggi, target sentuh 56 dp, font 18 sp

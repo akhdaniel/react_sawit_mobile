@@ -21,10 +21,18 @@ function exists(store: Store, entity: Parameters<Store['getMaster']>[0], id: num
   return id == null || store.getMaster(entity, id) != null;
 }
 
+/** Absensi efektif (koreksi menggantikan baris asal) — sama dengan aturan di HP. */
+function effectiveCheckIns(store: Store, date: string) {
+  const rows = store.acceptedOfType('attendance').filter((a) => a.payload.work_date === date && a.payload.type === 'check_in');
+  const superseded = new Set(rows.map((r) => r.meta.correction_of).filter(Boolean));
+  return rows.filter((r) => !superseded.has(r.mobile_uuid));
+}
+
+/** Hadir = check-in efektif berstatus hadir/terlambat (sakit/izin/mangkir tidak dihitung). */
 function checkedIn(store: Store, employeeId: number, date: string): boolean {
-  return store
-    .acceptedOfType('attendance')
-    .some((a) => a.payload.employee_id === employeeId && a.payload.work_date === date && a.payload.type === 'check_in');
+  return effectiveCheckIns(store, date).some(
+    (a) => a.payload.employee_id === employeeId && (a.payload.att_status === 'hadir' || a.payload.att_status === 'terlambat'),
+  );
 }
 
 export function evaluate(store: Store, item: TxItem, userId: number): RuleResult {
@@ -43,18 +51,14 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
       const p = item.payload;
       if (!exists(store, 'employee', p.employee_id)) return { ok: false, reason: 'unknown_employee', flags };
       if (!exists(store, 'gang', p.gang_id)) return { ok: false, reason: 'unknown_gang', flags };
-      if (p.type === 'check_in') {
-        const other = store
-          .acceptedOfType('attendance')
-          .find(
-            (a) =>
-              a.payload.employee_id === p.employee_id &&
-              a.payload.work_date === p.work_date &&
-              a.payload.type === 'check_in' &&
-              a.payload.gang_id !== p.gang_id &&
-              !item.meta.correction_of,
-          );
-        if (other) return { ok: false, reason: 'already_checked_in_other_gang', flags };
+      if (p.type === 'check_in' && !item.meta.correction_of) {
+        const existing = effectiveCheckIns(store, p.work_date).find((a) => a.payload.employee_id === p.employee_id);
+        if (existing) {
+          return { ok: false, reason: existing.payload.gang_id === p.gang_id ? 'already_checked_in' : 'already_checked_in_other_gang', flags };
+        }
+      }
+      if (p.type === 'check_out' && !checkedIn(store, p.employee_id, p.work_date)) {
+        return { ok: false, reason: 'not_checked_in', flags };
       }
       if (p.outside_afdeling) flags.push('outside_afdeling');
       return { ok: true, flags };

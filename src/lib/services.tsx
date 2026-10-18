@@ -17,6 +17,7 @@ import { getPendingSummary } from '../db/repositories/pending';
 import { useDb } from '../db/provider';
 import type { AppDatabase } from '../db/types';
 import { SessionService } from '../features/auth/session-service';
+import type { TxContext } from '../features/common/tx-factory';
 import { useSession } from '../features/auth/session-store';
 import { useSecurity } from '../features/security/security-store';
 import { useSync } from '../features/sync/sync-store';
@@ -27,7 +28,7 @@ import { HttpClient } from '../sync/http';
 import { deviceClock } from './clock';
 import { apiBaseUrlSchema, appConfig } from './config';
 import { getDeviceIdentity, type DeviceIdentity } from './device';
-import { checkIntegrity } from './guard';
+import { checkIntegrity, isCompromised } from './guard';
 import { getFix, type FixResult, type LocationApi } from './location';
 import { expoSecureKV } from './secure-kv.expo';
 import { TrustedClock, type TimeAnchor } from './trusted-time';
@@ -42,6 +43,8 @@ export interface AppServices {
   setBaseUrl(url: string): void;
   /** Ambil posisi GPS dan perbarui status lokasi palsu. */
   refreshLocation(): Promise<FixResult>;
+  /** Konteks anti-fraud untuk transaksi baru (posisi segar ≤ 60 dtk, trusted time, flag root). */
+  txContext(): Promise<TxContext>;
   /** Jalankan sinkron (single-flight) dan perbarui store UI. */
   sync(): Promise<SyncResult>;
 }
@@ -109,6 +112,32 @@ function createServices(db: AppDatabase): AppServices {
     return result;
   };
 
+  const FIX_MAX_AGE_MS = 60_000;
+  const txContext = async (): Promise<TxContext> => {
+    const user = useSession.getState().user;
+    if (!user) throw new Error('Belum login');
+    let fix = useSecurity.getState().lastFix;
+    if (!fix || Date.now() - fix.timestampMs > FIX_MAX_AGE_MS) {
+      const r = await getFix(ExpoLocation as unknown as LocationApi, { timeoutMs: 8_000, maxAgeMs: FIX_MAX_AGE_MS });
+      if (r.ok) {
+        fix = r.fix;
+        useSecurity.getState().setFix(r.fix);
+      } else {
+        fix = null;
+        useSecurity.getState().setLocationFailure(r.reason);
+      }
+    }
+    const integrity = useSecurity.getState().integrity;
+    return {
+      userId: user.id,
+      deviceId: device.deviceId,
+      trusted: clock.now(),
+      deviceNowIso: new Date().toISOString(),
+      fix,
+      rooted: integrity ? isCompromised(integrity) : false,
+    };
+  };
+
   const syncApi = createSyncApi(api);
   const sync = async () => {
     const store = useSync.getState();
@@ -137,7 +166,7 @@ function createServices(db: AppDatabase): AppServices {
   const last = getMeta(db, META_KEYS.lastSyncResult);
   if (last) useSync.getState().setResult(JSON.parse(last) as SyncResult);
 
-  return { db, clock, api, session, device, getBaseUrl, setBaseUrl, refreshLocation, sync };
+  return { db, clock, api, session, device, getBaseUrl, setBaseUrl, refreshLocation, sync, txContext };
 }
 
 export function ServicesProvider({ children }: { children: ReactNode }) {

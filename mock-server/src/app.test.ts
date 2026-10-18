@@ -225,6 +225,31 @@ describe('transaksi', () => {
     assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['accepted', 'already_checked_in_other_gang']);
   });
 
+  it('sakit tidak dihitung hadir; koreksi menjadi hadir membuka penugasan', async () => {
+    const { access_token, user } = await login();
+    const sick = checkIn(user.id, 7, 7, { att_status: 'sakit' });
+    const assign = (n: string) => ({
+      type: 'assignment',
+      mobile_uuid: randomUUID(),
+      meta: meta(user.id),
+      payload: { work_date: today, work_plan_id: null, unplanned_reason: n, activity_id: 2, block_id: 1, employee_ids: [7] },
+    });
+    const r1 = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [sick, assign('a')] }, access_token)).json);
+    assert.deepEqual(r1.results.map((r) => r.reason ?? r.status), ['accepted', 'no_check_in:7']);
+    const fix = { ...checkIn(user.id, 7, 7), meta: meta(user.id, { correction_of: sick.mobile_uuid }) };
+    const r2 = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [fix, assign('b')] }, access_token)).json);
+    assert.deepEqual(r2.results.map((r) => r.status), ['accepted', 'accepted']);
+  });
+
+  it('check-out tanpa check-in hadir ditolak; check-in ganda di gang sama ditolak', async () => {
+    const { access_token, user } = await login();
+    const out = { ...checkIn(user.id, 8, 8), payload: { ...checkIn(user.id, 8, 8).payload, type: 'check_out' } };
+    const r = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [out, checkIn(user.id, 8, 8), checkIn(user.id, 8, 8)] }, access_token)).json,
+    );
+    assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['not_checked_in', 'accepted', 'already_checked_in']);
+  });
+
   it('payload tidak valid ditolak per item, tidak menggagalkan batch', async () => {
     const { access_token, user } = await login();
     const broken = { ...checkIn(user.id, 2, 2), payload: { work_date: 'kemarin' } };

@@ -15,6 +15,8 @@ export const META_KEYS = {
   apiBaseUrl: 'api_base_url',
   /** User terakhir yang login di HP ini. */
   lastUserId: 'last_user_id',
+  /** Gang terakhir dipilih di layar absensi/penugasan. */
+  selectedGangId: 'selected_gang_id',
 } as const;
 export type MetaKey = (typeof META_KEYS)[keyof typeof META_KEYS];
 

@@ -11,6 +11,8 @@ const extraSchema = z.object({
   estateUtcOffsetMinutes: z.int().min(-720).max(840).default(420),
   /** Kunci aplikasi (minta PIN) setelah di latar belakang selama N menit. */
   autoLockMinutes: z.number().positive().default(5),
+  /** Jam masuk kerja (zona estate); check-in setelahnya default "terlambat". */
+  workStartTime: z.string().regex(/^\d{2}:\d{2}$/).default('06:30'),
 });
 
 export type AppConfig = z.infer<typeof extraSchema>;
