@@ -60,8 +60,10 @@ export const employee = sqliteTable(
     type: text('type', { enum: ['SKU', 'BHL', 'BORONGAN'] }).notNull(),
     gangId: integer('gang_id'),
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
+    /** UID kartu NFC pekerja (heksadesimal huruf besar), didaftarkan di ERP. */
+    nfcUid: text('nfc_uid'),
   },
-  (t) => [index('employee_gang_idx').on(t.gangId), index('employee_nik_idx').on(t.nik)],
+  (t) => [index('employee_gang_idx').on(t.gangId), index('employee_nik_idx').on(t.nik), index('employee_nfc_idx').on(t.nfcUid)],
 );
 
 export const gang = sqliteTable(

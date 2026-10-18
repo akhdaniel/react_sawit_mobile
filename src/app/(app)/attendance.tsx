@@ -32,6 +32,7 @@ import { checkIn, checkOut, correctCheckIn, type AttendanceResult } from '@/feat
 import { useGangSelection } from '@/features/attendance/useGang';
 import { useSession } from '@/features/auth/session-store';
 import { CameraCapture, type CapturedPhoto } from '@/features/camera/CameraCapture';
+import { NfcCardButton } from '@/features/nfc/NfcCardButton';
 import { t } from '@/i18n/id';
 import { appConfig } from '@/lib/config';
 import { useServices } from '@/lib/services';
@@ -235,6 +236,7 @@ export default function AttendanceScreen() {
               })}
             </Card>
           )}
+          <NfcCardButton onEmployee={(e) => setSheetFor(e)} />
           <Button kind="outline" icon="account-plus" label={t('attendance.addOther')} onPress={() => setOtherOpen(true)} />
         </>
       )}

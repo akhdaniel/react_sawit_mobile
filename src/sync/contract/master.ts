@@ -48,6 +48,11 @@ export const employeeSchema = z.object({
   type: z.enum(['SKU', 'BHL', 'BORONGAN']),
   gang_id: id.nullish(),
   active: z.boolean(),
+  nfc_uid: z
+    .string()
+    .regex(/^[0-9A-Fa-f]{8,20}$/)
+    .nullish()
+    .transform((v) => (v == null ? null : v.toUpperCase())),
 });
 
 export const gangSchema = z.object({

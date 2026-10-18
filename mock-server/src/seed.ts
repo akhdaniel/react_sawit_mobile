@@ -134,6 +134,7 @@ export function buildSeed(today = jakartaDate()): { master: SeedMaster; users: S
       type: r < 0.6 ? 'SKU' : r < 0.9 ? 'BHL' : 'BORONGAN',
       gang_id: g.id,
       active: i % 41 !== 40, // beberapa pekerja nonaktif
+      nfc_uid: `04${(0xa10000 + i + 1).toString(16).toUpperCase()}A5B680`, // UID 7 byte kartu dummy
     });
     if (g.foreman_employee_id == null) g.foreman_employee_id = i + 1;
   }

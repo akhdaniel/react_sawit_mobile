@@ -21,6 +21,7 @@ import { activity, assignment, block, employee, harvestTicket, penaltyRule, tph,
 import { useGangSelection } from '@/features/attendance/useGang';
 import { useSession } from '@/features/auth/session-store';
 import { CameraCapture, type CapturedPhoto } from '@/features/camera/CameraCapture';
+import { NfcCardButton } from '@/features/nfc/NfcCardButton';
 import { saveHarvestTicket } from '@/features/harvest/actions';
 import { EMPTY_COUNTS, estKg, formatRupiah, premiEstimate, type BunchCounts } from '@/features/harvest/calc';
 import { t } from '@/i18n/id';
@@ -174,6 +175,15 @@ export default function NewHarvestTicketScreen() {
             <Chip key={h.id} label={h.name} selected={h.id === harvesterId} onPress={() => setHarvesterId(h.id)} />
           ))}
         </View>
+      )}
+
+      {!original && (
+        <NfcCardButton
+          onEmployee={(e) => {
+            if (harvesters.some((h) => h.id === e.id)) setHarvesterId(e.id);
+            else Alert.alert(t('harvest.title'), t('nfc.notPresent', { name: e.name }));
+          }}
+        />
       )}
 
       {duplicate && (

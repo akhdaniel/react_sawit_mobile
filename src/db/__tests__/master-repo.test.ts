@@ -37,7 +37,7 @@ describe('applyMasterChanges', () => {
       'v1',
     );
     applyMasterChanges(db, p.changes, p.cursor);
-    expect(db.select().from(employee).get()).toEqual({ id: 5, nik: '1401', name: 'Andi', type: 'SKU', gangId: 3, active: false });
+    expect(db.select().from(employee).get()).toEqual({ id: 5, nik: '1401', name: 'Andi', type: 'SKU', gangId: 3, active: false, nfcUid: null });
   });
 
   it('atomik: bila satu baris gagal, data dan cursor lama tetap', () => {

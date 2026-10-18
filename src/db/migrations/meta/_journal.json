@@ -36,6 +36,13 @@
       "when": 1792329715248,
       "tag": "0004_approval_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792330199758,
+      "tag": "0005_employee_nfc",
+      "breakpoints": true
     }
   ]
 }

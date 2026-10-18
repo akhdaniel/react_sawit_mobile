@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { Button } from '@/components/Button';
@@ -15,6 +15,7 @@ import { useSecurity } from '@/features/security/security-store';
 import { useTrustedTime } from '@/features/security/useRiskWarnings';
 import { t } from '@/i18n/id';
 import { isCompromised } from '@/lib/guard';
+import { nfcEnabled, nfcSupported } from '@/lib/nfc';
 import { useServices } from '@/lib/services';
 
 export default function AccountScreen() {
@@ -26,6 +27,10 @@ export default function AccountScreen() {
   const time = useTrustedTime();
   const counts = useTableQuery(MASTER_ENTITIES, () => countMaster(services.db));
   const [checking, setChecking] = useState(false);
+  const [nfc, setNfc] = useState<'ready' | 'off' | 'none' | null>(null);
+  useEffect(() => {
+    void nfcSupported().then(async (ok) => setNfc(!ok ? 'none' : (await nfcEnabled()) ? 'ready' : 'off'));
+  }, []);
 
   const compromised = !!integrity && (isCompromised(integrity) || integrity.mockLocationEnabled);
   const integrityText = !integrity
@@ -104,7 +109,14 @@ export default function AccountScreen() {
       />
 
       <Card>
-        <ListRow icon="printer" label={t('account.printer')} last onPress={() => router.push('/printer')} />
+        <ListRow icon="printer" label={t('account.printer')} onPress={() => router.push('/printer')} />
+        <ListRow
+          icon="nfc-variant"
+          tone={nfc === 'ready' ? 'success' : 'accent'}
+          label={t('nfc.status')}
+          value={nfc ? t(`nfc.${nfc}`) : '…'}
+          last
+        />
       </Card>
 
       <SectionTitle>{t('home.masterTitle')}</SectionTitle>

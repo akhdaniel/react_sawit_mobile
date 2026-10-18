@@ -4,7 +4,7 @@ Aplikasi Android lapangan **offline-first** untuk perkebunan kelapa sawit (mando
 Semua data lapangan disimpan di SQLite terenkripsi di HP dan disinkronkan ke ERP Xerpium (Odoo 18)
 melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 
-> **Status: Tahap 8 — Approval & laporan harian.**
+> **Status: Tahap 9 — NFC kartu pekerja (semua tahap selesai).**
 > - Tahap 1 (fondasi): Expo SDK 58, DB terenkripsi + migrasi, kontrak zod bersama, trigger append-only, mock server.
 > - Tahap 2: login online, PIN offline + kunci otomatis, menu per peran, trusted-time (modul native jam monotonic),
 >   deteksi root/emulator/fake GPS + banner, HTTP client (timeout/retry/backoff) dan refresh token.
@@ -18,6 +18,7 @@ melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 > - Tahap 6: SPB dari pindai QR / tiket lokal, langsir, potensi restan, cetak ESC/POS via printer Bluetooth.
 > - Tahap 7: perawatan + pemakaian material dengan deteksi over-dose ke antrean approval.
 > - Tahap 8: inbox approval offline untuk asisten, keputusan, laporan harian bertanda tangan.
+> - Tahap 9: kartu NFC pekerja untuk absensi dan memilih pemanen.
 
 ## Prasyarat
 
@@ -300,6 +301,22 @@ dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
 - Mandor/asisten membubuhkan tanda tangan di layar (`react-native-view-shot` → PNG + SHA-256).
 - Laporan ulang untuk gang + tanggal yang sama menjadi koreksi laporan sebelumnya.
 
+## NFC kartu pekerja (tahap 9)
+
+`lib/nfc.ts` · `lib/nfc-parse.ts` · `features/nfc/NfcCardButton.tsx`
+
+**Pemakaian:** tombol **Tempel kartu NFC pekerja** ada di layar Absensi (membuka aksi absensi pekerja tsb) dan di tiket panen (memilih pemanen).
+Tombol disembunyikan otomatis pada HP tanpa NFC.
+
+**Cara kartu dikenali**, berurutan:
+1. **Teks NDEF** `XSM1|EMP|<employee_id>|<nik>`, ditulis di kantor. NIK di kartu harus cocok dengan master.
+2. **UID kartu** yang terdaftar di master pekerja, kolom `employee.nfc_uid` (migrasi `0005`).
+
+**Pemetaan kartu milik server:** HP tidak pernah mendaftarkan atau mengubah kartu (prinsip master milik server).
+Kartu tidak dikenal atau pekerja nonaktif ditolak dengan pesan yang jelas.
+
+**Mock server:** setiap pekerja dummy punya `nfc_uid` 7 byte, misalnya `04A10001A5B680` untuk pekerja #1.
+
 ## Arsitektur
 
 ```
@@ -327,6 +344,7 @@ src/
   features/transport/ aksi SPB, struk ESC/POS, pemindai QR, cetak
   features/upkeep/ kalkulasi dosis & upah, aksi simpan
   features/report/ keputusan approval, laporan harian
+  features/nfc/    tombol baca kartu NFC pekerja
   sync/            engine, api (SyncApi), api-client, http, background-task, contract
   i18n/id.ts       semua teks UI bahasa Indonesia
   theme/           warna kontras tinggi, target sentuh 56 dp, font 18 sp
@@ -382,6 +400,7 @@ Tambahan kecil terhadap kontrak awal (perlu dikonfirmasi ke tim backend):
 - `afdeling` → `polygon_geojson` (untuk cek absen di luar afdeling).
 - Semua master punya `id` (termasuk `dosage_rule` dan `penalty_rule`) agar delta delete seragam.
 - `meta` transaksi → `time_source` (`server` | `device`).
+- Master `employee` → `nfc_uid` (opsional) untuk kartu NFC.
 
 ## Mock server
 
