@@ -1,16 +1,17 @@
 import { router } from 'expo-router';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { getPendingSummary, PENDING_WATCH_TABLES } from '@/db/repositories/pending';
 import { useDb, useTableQuery } from '@/db/provider';
 import { useSession } from '@/features/auth/session-store';
 import { useSync } from '@/features/sync/sync-store';
 import { t } from '@/i18n/id';
-import { colors, spacing, touch } from '@/theme';
+import { colors, radius, shadows, spacing, touch } from '@/theme';
 
+import { Icon } from './Icon';
 import { Txt } from './Txt';
 
-/** Indikator "X data belum terkirim" — selalu tampil di header; ketuk untuk ke layar Sinkron. */
+/** Pill "X data belum terkirim" — selalu tampil; ketuk untuk ke layar Sinkron. */
 export function PendingBadge() {
   const db = useDb();
   const { total } = useTableQuery(PENDING_WATCH_TABLES, () => getPendingSummary(db));
@@ -22,21 +23,33 @@ export function PendingBadge() {
       accessibilityRole={unlocked ? 'button' : 'text'}
       disabled={!unlocked}
       onPress={() => router.push('/sync')}
-      style={[styles.badge, { backgroundColor: has ? colors.warning : colors.primary }]}
+      style={({ pressed }) => [styles.pill, pressed && { opacity: 0.85 }]}
     >
-      <Txt style={{ color: has ? colors.onWarning : colors.onPrimary, fontWeight: '700' }}>
-        {running ? `⟳ ${t('sync.running')} · ` : ''}
+      {running ? (
+        <Icon name="sync" size={22} color={colors.primary} />
+      ) : (
+        <View style={[styles.dot, { backgroundColor: has ? colors.warning : colors.success }]} />
+      )}
+      <Txt style={styles.text}>
+        {running ? `${t('sync.running')} · ` : ''}
         {has ? t('header.pendingSome', { count: total }) : t('header.pendingNone')}
-        {unlocked ? '  ›' : ''}
       </Txt>
+      {unlocked && <Icon name="chevron-right" size={24} color={colors.textMuted} />}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  badge: {
+  pill: {
     minHeight: touch.minSize,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    boxShadow: shadows.floating,
   },
+  dot: { width: 12, height: 12, borderRadius: 6 },
+  text: { fontWeight: '700', flexShrink: 1 },
 });

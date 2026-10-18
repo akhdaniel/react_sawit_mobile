@@ -4,10 +4,11 @@ import { Controller, useForm } from 'react-hook-form';
 import { Pressable, View } from 'react-native';
 
 import { Button } from '@/components/Button';
+import { Icon } from '@/components/Icon';
 import { TextField, type TextInputRef } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
 import { t } from '@/i18n/id';
-import { colors, spacing, touch } from '@/theme';
+import { colors, radius, spacing, touch } from '@/theme';
 
 import { loginFormSchema, type LoginFormInput, type LoginFormValues } from './schema';
 
@@ -72,11 +73,11 @@ export function LoginForm({
       <Pressable
         accessibilityRole="button"
         onPress={() => setShowServer((v) => !v)}
-        style={{ minHeight: touch.minSize, justifyContent: 'center' }}
+        style={{ minHeight: touch.minSize, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
       >
-        <Txt style={{ textDecorationLine: 'underline' }}>
-          {showServer ? '▾' : '▸'} {t('auth.serverToggle')}
-        </Txt>
+        <Icon name="server-network" size={22} color={colors.primary} />
+        <Txt style={{ flex: 1, color: colors.primary, fontWeight: '700' }}>{t('auth.serverToggle')}</Txt>
+        <Icon name={showServer ? 'chevron-up' : 'chevron-down'} size={26} color={colors.primary} />
       </Pressable>
       {(showServer || !!errors.baseUrl) && (
         <Controller
@@ -98,11 +99,11 @@ export function LoginForm({
       )}
 
       {!!error && (
-        <View accessibilityRole="alert" style={{ backgroundColor: colors.danger, padding: spacing.md, borderRadius: touch.radius }}>
+        <View accessibilityRole="alert" style={{ backgroundColor: colors.danger, padding: spacing.md, borderRadius: radius.md }}>
           <Txt style={{ color: colors.onDanger, fontWeight: '700' }}>{error}</Txt>
         </View>
       )}
-      <Button label={t('auth.submit')} busy={isSubmitting} onPress={submit} />
+      <Button icon="login" label={t('auth.submit')} busy={isSubmitting} onPress={submit} />
     </View>
   );
 }

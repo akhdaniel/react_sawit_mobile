@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
 import { LoginForm } from '@/features/auth/LoginForm';
@@ -13,9 +14,10 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <Screen title={t('auth.loginTitle')} subtitle={t('app.name')}>
-      <Txt>{t('auth.loginHint')}</Txt>
-      <LoginForm
+    <Screen title={t('app.name')} subtitle={t('auth.loginTitle')}>
+      <Card padded>
+        <Txt>{t('auth.loginHint')}</Txt>
+        <LoginForm
         defaultBaseUrl={services.getBaseUrl()}
         error={error}
         onSubmit={async (v) => {
@@ -28,7 +30,8 @@ export default function LoginScreen() {
             setError(e instanceof SessionError || e instanceof Error ? e.message : String(e));
           }
         }}
-      />
+        />
+      </Card>
     </Screen>
   );
 }

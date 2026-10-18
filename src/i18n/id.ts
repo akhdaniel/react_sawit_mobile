@@ -31,6 +31,8 @@ export const id = {
     masterEmpty: 'Belum ada data master. Lakukan sinkron di kantor.',
     noMenu: 'Peran Anda belum punya menu di aplikasi ini.',
     account: 'Akun & perangkat',
+    menu: 'Menu kerja',
+    other: 'Lainnya',
   },
   auth: {
     loginTitle: 'Masuk',
@@ -61,6 +63,7 @@ export const id = {
   account: {
     title: 'Akun & perangkat',
     user: 'Pengguna',
+    device: 'Perangkat',
     roles: 'Peran',
     afdeling: 'Afdeling',
     deviceId: 'ID perangkat',
@@ -113,6 +116,8 @@ export const id = {
     offline: 'Tidak ada koneksi — data aman di HP',
     pendingTitle: 'Belum terkirim',
     photosPending: 'Foto belum terunggah',
+    totalPending: 'Total transaksi',
+    material: 'Material',
     resultTitle: 'Hasil sinkron terakhir',
     resultOk: 'Berhasil',
     resultPartial: 'Sebagian gagal',

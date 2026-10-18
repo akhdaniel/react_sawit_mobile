@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, View } from 'react-native';
 
 import { Button } from '@/components/Button';
+import { Avatar } from '@/components/Avatar';
+import { Card } from '@/components/Card';
 import { PinPad } from '@/components/PinPad';
 import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
@@ -60,11 +62,17 @@ export default function UnlockScreen() {
     ]);
 
   return (
-    <Screen title={t('auth.unlockTitle')} subtitle={user ? t('auth.unlockHint', { name: user.name }) : undefined}>
-      {locked && <Txt style={{ color: colors.danger, fontWeight: '700' }}>{t('auth.pinLocked', { seconds: remainingSec })}</Txt>}
-      {!locked && !!message && <Txt style={{ color: colors.danger, fontWeight: '700' }}>{message}</Txt>}
-      <PinPad minLength={PIN_MIN} maxLength={PIN_MAX} onSubmit={submit} disabled={locked} />
-      <Button kind="outline" label={t('auth.forgotPin')} onPress={forgot} />
+    <Screen
+      title={t('auth.unlockTitle')}
+      subtitle={user ? t('auth.unlockHint', { name: user.name }) : undefined}
+      hero={user ? <View style={{ alignItems: 'center' }}><Avatar name={user.name} size={56} /></View> : undefined}
+    >
+      <Card padded>
+        {locked && <Txt style={{ color: colors.danger, fontWeight: '700', textAlign: 'center' }}>{t('auth.pinLocked', { seconds: remainingSec })}</Txt>}
+        {!locked && !!message && <Txt style={{ color: colors.danger, fontWeight: '700', textAlign: 'center' }}>{message}</Txt>}
+        <PinPad minLength={PIN_MIN} maxLength={PIN_MAX} onSubmit={submit} disabled={locked} />
+      </Card>
+      <Button kind="outline" icon="lock-reset" label={t('auth.forgotPin')} onPress={forgot} />
     </Screen>
   );
 }

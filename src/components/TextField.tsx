@@ -1,7 +1,7 @@
-import type { ComponentRef, Ref } from 'react';
+import { useState, type ComponentRef, type Ref } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
-import { colors, spacing, touch, typography } from '@/theme';
+import { colors, radius, spacing, touch, typography } from '@/theme';
 
 import { Txt } from './Txt';
 
@@ -12,8 +12,11 @@ export function TextField({
   error,
   style,
   ref,
+  onFocus,
+  onBlur,
   ...rest
 }: Omit<TextInputProps, 'ref'> & { label: string; error?: string; ref?: Ref<TextInputRef> }) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={styles.wrap}>
       <Txt style={styles.label}>{label}</Txt>
@@ -21,7 +24,20 @@ export function TextField({
         ref={ref}
         accessibilityLabel={label}
         placeholderTextColor={colors.textMuted}
-        style={[styles.input, !!error && { borderColor: colors.danger }, style]}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
+        style={[
+          styles.input,
+          focused && { borderColor: colors.primary, backgroundColor: colors.surface },
+          !!error && { borderColor: colors.danger },
+          style,
+        ]}
         {...rest}
       />
       {!!error && <Txt style={styles.error}>{error}</Txt>}
@@ -36,11 +52,11 @@ const styles = StyleSheet.create({
     minHeight: touch.minSize,
     borderWidth: 2,
     borderColor: colors.border,
-    borderRadius: touch.radius,
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     fontSize: typography.large,
     color: colors.text,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceMuted,
   },
   error: { color: colors.danger, fontWeight: '700' },
 });

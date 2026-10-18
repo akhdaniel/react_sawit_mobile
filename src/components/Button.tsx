@@ -1,39 +1,49 @@
-import { ActivityIndicator, Pressable, StyleSheet, type PressableProps } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View, type PressableProps } from 'react-native';
 
-import { colors, spacing, touch, typography } from '@/theme';
+import { colors, gradients, radius, shadows, spacing, touch, typography } from '@/theme';
 
+import { Icon, type IconName } from './Icon';
 import { Txt } from './Txt';
 
 type Kind = 'primary' | 'danger' | 'outline';
-
-const palette: Record<Kind, { bg: string; fg: string }> = {
-  primary: { bg: colors.primary, fg: colors.onPrimary },
-  danger: { bg: colors.danger, fg: colors.onDanger },
-  outline: { bg: colors.background, fg: colors.text },
-};
 
 export function Button({
   label,
   kind = 'primary',
   busy = false,
+  icon,
   disabled,
   ...rest
-}: PressableProps & { label: string; kind?: Kind; busy?: boolean }) {
-  const p = palette[kind];
-  const off = disabled || busy;
+}: PressableProps & { label: string; kind?: Kind; busy?: boolean; icon?: IconName }) {
+  const off = !!disabled || busy;
+  // Saat busy tombol tetap berwarna (bukan abu-abu) agar jelas sedang diproses.
+  const gray = !!disabled && !busy;
+  const filled = kind !== 'outline';
+  const fg = filled ? colors.onPrimary : colors.primary;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!off, busy }}
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: off, busy }}
       disabled={off}
       style={({ pressed }) => [
         styles.base,
-        { backgroundColor: off ? colors.disabled : p.bg, opacity: pressed ? 0.8 : 1 },
-        kind === 'outline' && styles.outline,
+        filled
+          ? { backgroundImage: gray ? undefined : kind === 'danger' ? gradients.danger : gradients.button, boxShadow: gray ? undefined : shadows.button }
+          : styles.outline,
+        gray && filled && { backgroundColor: colors.disabled },
+        pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] },
       ]}
       {...rest}
     >
-      {busy ? <ActivityIndicator color={p.fg} /> : <Txt style={[styles.label, { color: p.fg }]}>{label}</Txt>}
+      <View style={styles.content}>
+        {busy ? (
+          <ActivityIndicator color={fg} />
+        ) : (
+          icon && <Icon name={icon} size={24} color={gray && !filled ? colors.disabled : fg} />
+        )}
+        <Txt style={[styles.label, { color: gray && !filled ? colors.disabled : fg }]}>{label}</Txt>
+      </View>
     </Pressable>
   );
 }
@@ -42,11 +52,12 @@ const styles = StyleSheet.create({
   base: {
     minHeight: touch.minSize,
     minWidth: touch.minSize,
-    borderRadius: touch.radius,
-    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  outline: { borderWidth: 2, borderColor: colors.border },
+  outline: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primary },
+  content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   label: { fontSize: typography.large, fontWeight: '700' },
 });

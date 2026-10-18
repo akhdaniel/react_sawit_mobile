@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { t } from '@/i18n/id';
-import { colors, spacing, touch, typography } from '@/theme';
+import { colors, gradients, shadows, spacing, touch, typography } from '@/theme';
+
+import { Icon } from './Icon';
 
 import { Txt } from './Txt';
 
@@ -45,7 +47,7 @@ export function PinPad({
       </View>
       <View style={styles.grid}>
         {KEYS.map((k) => {
-          const label = k === 'del' ? '⌫' : k === 'ok' ? t('auth.ok') : k;
+          const label = k === 'ok' ? t('auth.ok') : k;
           const okDisabled = k === 'ok' && pin.length < minLength;
           return (
             <Pressable
@@ -56,11 +58,16 @@ export function PinPad({
               onPress={() => press(k)}
               style={({ pressed }) => [
                 styles.key,
-                k === 'ok' && { backgroundColor: okDisabled ? colors.disabled : colors.primary },
-                pressed && { opacity: 0.7 },
+                k === 'ok' && (okDisabled ? { backgroundColor: colors.disabled } : { backgroundImage: gradients.button, boxShadow: shadows.button }),
+                k === 'del' && styles.keyGhost,
+                pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
               ]}
             >
-              <Txt style={[styles.keyText, k === 'ok' && { color: colors.onPrimary }]}>{label}</Txt>
+              {k === 'del' ? (
+                <Icon name="backspace-outline" size={32} color={colors.text} />
+              ) : (
+                <Txt style={[styles.keyText, k === 'ok' && { color: colors.onPrimary, fontSize: typography.large }]}>{label}</Txt>
+              )}
             </Pressable>
           );
         })}
@@ -69,23 +76,23 @@ export function PinPad({
   );
 }
 
-const KEY = Math.max(72, touch.minSize);
+const KEY = Math.max(76, touch.minSize);
 
 const styles = StyleSheet.create({
   root: { alignItems: 'center', gap: spacing.lg },
   dots: { flexDirection: 'row', gap: spacing.md, minHeight: 24 },
-  dot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border },
-  dotFilled: { backgroundColor: colors.text },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', width: KEY * 3 + spacing.md * 2, gap: spacing.md },
+  dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: colors.borderStrong },
+  dotFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', width: KEY * 3 + spacing.lg * 2, gap: spacing.lg, justifyContent: 'center' },
   key: {
     width: KEY,
     height: KEY,
-    borderRadius: touch.radius,
-    borderWidth: 2,
-    borderColor: colors.border,
+    borderRadius: KEY / 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
+    boxShadow: shadows.card,
   },
-  keyText: { fontSize: typography.title, fontWeight: '700' },
+  keyGhost: { backgroundColor: colors.surfaceMuted, boxShadow: undefined },
+  keyText: { fontSize: typography.hero, fontWeight: '700' },
 });

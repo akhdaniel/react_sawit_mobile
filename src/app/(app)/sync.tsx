@@ -1,9 +1,11 @@
 import { useNetInfo } from '@react-native-community/netinfo';
-import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/Button';
+import { Card, SectionTitle } from '@/components/Card';
+import { Icon } from '@/components/Icon';
+import { ListRow } from '@/components/ListRow';
 import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
@@ -16,7 +18,7 @@ import { SessionError } from '@/features/auth/session-service';
 import { needsReauth, useSync } from '@/features/sync/sync-store';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
-import { colors, spacing, touch } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 const TYPE_LABEL: Record<string, string> = {
   attendance: t('menu.attendance'),
@@ -24,19 +26,10 @@ const TYPE_LABEL: Record<string, string> = {
   harvest_ticket: t('menu.harvest'),
   spb: t('menu.transport'),
   upkeep: t('menu.upkeep'),
-  material_usage: 'Material',
+  material_usage: t('sync.material'),
   daily_report: t('menu.dailyReport'),
   approval_decision: t('menu.approval'),
 };
-
-function Row({ label, value, strong }: { label: string; value: string | number; strong?: boolean }) {
-  return (
-    <View style={styles.row}>
-      <Txt style={{ flex: 1 }}>{label}</Txt>
-      <Txt style={{ fontWeight: strong ? '700' : '400' }}>{value}</Txt>
-    </View>
-  );
-}
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('id-ID') : t('sync.never'));
 
@@ -69,117 +62,109 @@ export default function SyncScreen() {
   };
 
   return (
-    <Screen title={t('sync.title')}>
-      <View style={[styles.banner, { backgroundColor: online ? colors.primary : colors.warning }]}>
-        <Txt style={{ color: online ? colors.onPrimary : colors.onWarning, fontWeight: '700' }}>
-          {online ? t('sync.online', { type: net.type }) : t('sync.offline')}
+    <Screen title={t('sync.title')} back>
+      <Card padded>
+        <View style={[styles.status, { backgroundColor: online ? colors.successSoft : colors.warningSoft }]}>
+          <Icon name={online ? 'wifi' : 'wifi-off'} size={26} color={online ? colors.success : colors.text} />
+          <Txt style={{ flex: 1, fontWeight: '700' }}>{online ? t('sync.online', { type: net.type }) : t('sync.offline')}</Txt>
+        </View>
+        <Button
+          icon="sync"
+          label={running ? (step ? t(`sync.step.${step}`) : t('sync.running')) : t('sync.now')}
+          busy={running}
+          onPress={() => void services.sync().catch(() => undefined)}
+        />
+        <Txt style={{ textAlign: 'center', color: colors.textMuted }}>
+          {t('sync.lastSync')}: <Txt style={{ fontWeight: '700' }}>{fmt(lastSyncAt)}</Txt>
         </Txt>
-      </View>
-
-      <Button
-        label={running ? (step ? t(`sync.step.${step}`) : t('sync.running')) : t('sync.now')}
-        busy={running}
-        onPress={() => void services.sync().catch(() => undefined)}
-      />
-      <Row label={t('sync.lastSync')} value={fmt(lastSyncAt)} strong />
+      </Card>
 
       {reauth && (
-        <View style={styles.card}>
-          <View style={styles.cardBody}>
-            <Txt variant="large" style={{ fontWeight: '700' }}>
-              {t('sync.reauthTitle')}
-            </Txt>
-            <Txt>{t('sync.reauthHint')}</Txt>
-            <TextField label={t('auth.password')} value={password} onChangeText={setPassword} secureTextEntry error={reauthError ?? undefined} />
-            <Button label={t('sync.reauthSubmit')} busy={reauthBusy} disabled={!password} onPress={() => void reauthenticate()} />
-          </View>
-        </View>
+        <Card padded>
+          <Txt variant="large" style={{ fontWeight: '700' }}>
+            {t('sync.reauthTitle')}
+          </Txt>
+          <Txt>{t('sync.reauthHint')}</Txt>
+          <TextField label={t('auth.password')} value={password} onChangeText={setPassword} secureTextEntry error={reauthError ?? undefined} />
+          <Button icon="login" label={t('sync.reauthSubmit')} busy={reauthBusy} disabled={!password} onPress={() => void reauthenticate()} />
+        </Card>
       )}
 
-      <Txt variant="large" style={{ fontWeight: '700' }}>
-        {t('sync.pendingTitle')}
-      </Txt>
-      <View style={styles.card}>
+      <SectionTitle>{t('sync.pendingTitle')}</SectionTitle>
+      <Card>
         {TRANSACTION_TYPES.filter((ty) => pending.byType[ty] > 0).map((ty) => (
-          <Row key={ty} label={TYPE_LABEL[ty] ?? ty} value={pending.byType[ty]} />
+          <ListRow key={ty} icon="tray-arrow-up" tone="accent" label={TYPE_LABEL[ty] ?? ty} value={String(pending.byType[ty])} />
         ))}
-        <Row label={t('header.pendingSome', { count: '' }).trim()} value={pending.total} strong />
-        <Row label={t('sync.photosPending')} value={pending.photos} />
-      </View>
+        <ListRow icon="database-clock" label={t('sync.totalPending')} value={String(pending.total)} />
+        <ListRow icon="image-multiple" tone="accent" label={t('sync.photosPending')} value={String(pending.photos)} last />
+      </Card>
 
       {lastResult && (
         <>
-          <Txt variant="large" style={{ fontWeight: '700' }}>
-            {t('sync.resultTitle')} · {lastResult.ok ? t('sync.resultOk') : t('sync.resultPartial')}
-          </Txt>
-          <View style={styles.card}>
-            <Row label={t('sync.sent')} value={lastResult.push.sent} />
-            <Row label={t('sync.accepted')} value={lastResult.push.accepted + lastResult.push.duplicate} />
-            <Row label={t('sync.rejected')} value={lastResult.push.rejected + lastResult.status.rejected} />
-            <Row label={t('sync.posted')} value={lastResult.status.posted} />
-            <Row label={t('sync.photosUploaded')} value={lastResult.photos.uploaded} />
-            <Row label={t('sync.masterUpdated')} value={lastResult.master.upserted + lastResult.master.deleted} />
-            {lastResult.errors.map((e, i) => (
-              <View key={i} style={[styles.row, { backgroundColor: colors.danger }]}>
-                <Txt style={{ color: colors.onDanger, fontWeight: '700' }}>
-                  {t(`sync.step.${e.step}`)}: {t(`sync.errorKind.${e.kind}`)} — {e.message}
-                </Txt>
-              </View>
-            ))}
-          </View>
+          <SectionTitle>{`${t('sync.resultTitle')} · ${lastResult.ok ? t('sync.resultOk') : t('sync.resultPartial')}`}</SectionTitle>
+          <Card>
+            <ListRow icon="send" label={t('sync.sent')} value={String(lastResult.push.sent)} />
+            <ListRow icon="check-circle" tone="success" label={t('sync.accepted')} value={String(lastResult.push.accepted + lastResult.push.duplicate)} />
+            <ListRow icon="close-circle" tone="danger" label={t('sync.rejected')} value={String(lastResult.push.rejected + lastResult.status.rejected)} />
+            <ListRow icon="book-check" tone="success" label={t('sync.posted')} value={String(lastResult.status.posted)} />
+            <ListRow icon="image-check" tone="accent" label={t('sync.photosUploaded')} value={String(lastResult.photos.uploaded)} />
+            <ListRow icon="database-sync" label={t('sync.masterUpdated')} value={String(lastResult.master.upserted + lastResult.master.deleted)} last />
+          </Card>
+          {lastResult.errors.map((e, i) => (
+            <View key={i} style={styles.error}>
+              <Icon name="alert-circle" size={24} color={colors.onDanger} />
+              <Txt style={{ flex: 1, color: colors.onDanger, fontWeight: '700' }}>
+                {t(`sync.step.${e.step}`)}: {t(`sync.errorKind.${e.kind}`)} — {e.message}
+              </Txt>
+            </View>
+          ))}
           {lastResult.push.invalid.length > 0 && (
             <>
-              <Txt style={{ fontWeight: '700', color: colors.danger }}>{t('sync.invalidTitle')}</Txt>
-              <View style={styles.card}>
-                {lastResult.push.invalid.map((x) => (
-                  <Row key={x.mobileUuid} label={`${TYPE_LABEL[x.type] ?? x.type} ${x.mobileUuid.slice(0, 8)}`} value={x.error} />
+              <SectionTitle>{t('sync.invalidTitle')}</SectionTitle>
+              <Card>
+                {lastResult.push.invalid.map((x, i) => (
+                  <ListRow
+                    key={x.mobileUuid}
+                    icon="alert"
+                    tone="danger"
+                    label={`${TYPE_LABEL[x.type] ?? x.type} ${x.mobileUuid.slice(0, 8)}`}
+                    description={x.error}
+                    last={i === lastResult.push.invalid.length - 1}
+                  />
                 ))}
-              </View>
+              </Card>
             </>
           )}
         </>
       )}
 
-      <Txt variant="large" style={{ fontWeight: '700' }}>
-        {t('sync.rejectedTitle')}
-      </Txt>
+      <SectionTitle>{t('sync.rejectedTitle')}</SectionTitle>
       {rejected.length === 0 ? (
-        <Txt>{t('sync.noRejected')}</Txt>
+        <Card padded>
+          <Txt>{t('sync.noRejected')}</Txt>
+        </Card>
       ) : (
         <>
           <Txt>{t('sync.rejectedHint')}</Txt>
-          <View style={styles.card}>
-            {rejected.map((r) => (
-              <View key={r.mobileUuid} style={styles.row}>
-                <Txt style={{ fontWeight: '700' }}>
-                  {TYPE_LABEL[r.type] ?? r.type} · {fmt(r.createdTrustedAt)}
-                </Txt>
-                <Txt style={{ color: colors.danger }}>{r.reason}</Txt>
-              </View>
+          <Card>
+            {rejected.map((r, i) => (
+              <ListRow
+                key={r.mobileUuid}
+                icon="close-octagon"
+                tone="danger"
+                label={`${TYPE_LABEL[r.type] ?? r.type} · ${fmt(r.createdTrustedAt)}`}
+                description={r.reason}
+                last={i === rejected.length - 1}
+              />
             ))}
-          </View>
+          </Card>
         </>
       )}
-
-      <Button kind="outline" label={t('common.back')} onPress={() => router.back()} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  banner: { padding: spacing.md, borderRadius: touch.radius },
-  card: { borderWidth: 2, borderColor: colors.border, borderRadius: touch.radius },
-  cardBody: { padding: spacing.md, gap: spacing.md },
-  row: {
-    minHeight: touch.minSize,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    justifyContent: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
+  status: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md },
+  error: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.danger },
 });

@@ -1,10 +1,10 @@
-import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
 import { Button } from '@/components/Button';
+import { Card, SectionTitle } from '@/components/Card';
+import { ListRow } from '@/components/ListRow';
 import { Screen } from '@/components/Screen';
-import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { countMaster } from '@/db/repositories/master';
 import { MASTER_ENTITIES } from '@/db/schema';
@@ -15,16 +15,6 @@ import { useTrustedTime } from '@/features/security/useRiskWarnings';
 import { t } from '@/i18n/id';
 import { isCompromised } from '@/lib/guard';
 import { useServices } from '@/lib/services';
-import { colors, spacing, touch } from '@/theme';
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.row}>
-      <Txt style={{ fontWeight: '700' }}>{label}</Txt>
-      <Txt>{value}</Txt>
-    </View>
-  );
-}
 
 export default function AccountScreen() {
   const services = useServices();
@@ -36,9 +26,10 @@ export default function AccountScreen() {
   const counts = useTableQuery(MASTER_ENTITIES, () => countMaster(services.db));
   const [checking, setChecking] = useState(false);
 
+  const compromised = !!integrity && (isCompromised(integrity) || integrity.mockLocationEnabled);
   const integrityText = !integrity
     ? '—'
-    : isCompromised(integrity) || integrity.mockLocationEnabled
+    : compromised
       ? Object.entries(integrity).filter(([, v]) => v).map(([k]) => k).join(', ')
       : t('account.integrityOk');
 
@@ -65,24 +56,43 @@ export default function AccountScreen() {
     ]);
 
   return (
-    <Screen title={t('account.title')}>
-      <View style={styles.card}>
-        <Row label={t('account.user')} value={user ? `${user.name} (#${user.id})` : '—'} />
-        <Row label={t('account.roles')} value={user?.roles.map((r) => t(`role.${r}`)).join(', ') ?? '—'} />
-        <Row label={t('account.afdeling')} value={user?.afdeling_ids.join(', ') ?? '—'} />
-        <Row label={t('account.deviceId')} value={services.device.deviceId} />
-        <Row label={t('account.deviceShort')} value={services.device.deviceShort} />
-        <Row label={t('account.appVersion')} value={services.device.appVersion} />
-        <Row label={t('account.server')} value={services.getBaseUrl()} />
-        <Row
+    <Screen title={t('account.title')} back>
+      <SectionTitle>{t('account.user')}</SectionTitle>
+      <Card>
+        <ListRow icon="account" label={user?.name ?? '—'} description={`#${user?.id ?? ''}`} />
+        <ListRow icon="badge-account" tone="accent" label={t('account.roles')} description={user?.roles.map((r) => t(`role.${r}`)).join(', ')} />
+        <ListRow icon="map-marker-radius" label={t('account.afdeling')} value={user?.afdeling_ids.join(', ') ?? '—'} last />
+      </Card>
+
+      <SectionTitle>{t('account.device')}</SectionTitle>
+      <Card>
+        <ListRow icon="cellphone" label={t('account.deviceId')} description={services.device.deviceId} />
+        <ListRow icon="identifier" tone="accent" label={t('account.deviceShort')} value={services.device.deviceShort} />
+        <ListRow icon="information-outline" label={t('account.appVersion')} value={services.device.appVersion} />
+        <ListRow icon="server-network" tone="accent" label={t('account.server')} description={services.getBaseUrl()} />
+        <ListRow
+          icon="clock-check-outline"
+          tone={time.source === 'server' ? 'success' : 'danger'}
           label={t('account.trustedTime')}
-          value={`${new Date(time.ms).toLocaleString('id-ID')} · ${time.source === 'server' ? t('account.timeServer') : t('account.timeDevice')}`}
+          description={`${new Date(time.ms).toLocaleString('id-ID')} · ${time.source === 'server' ? t('account.timeServer') : t('account.timeDevice')}`}
         />
-        <Row label={t('account.integrity')} value={integrityText} />
-        <Row label={t('account.location')} value={locationText} />
-      </View>
+        <ListRow
+          icon={compromised ? 'shield-alert' : 'shield-check'}
+          tone={compromised ? 'danger' : 'success'}
+          label={t('account.integrity')}
+          description={integrityText}
+        />
+        <ListRow
+          icon="crosshairs-gps"
+          tone={fix?.mocked ? 'danger' : 'primary'}
+          label={t('account.location')}
+          description={locationText}
+          last
+        />
+      </Card>
       <Button
         kind="outline"
+        icon="crosshairs-gps"
         label={t('account.checkLocation')}
         busy={checking}
         onPress={async () => {
@@ -92,29 +102,14 @@ export default function AccountScreen() {
         }}
       />
 
-      <Txt variant="large" style={{ fontWeight: '700' }}>
-        {t('home.masterTitle')}
-      </Txt>
-      <View style={styles.card}>
-        {MASTER_ENTITIES.map((e) => (
-          <Row key={e} label={t(`entity.${e}`)} value={String(counts[e])} />
+      <SectionTitle>{t('home.masterTitle')}</SectionTitle>
+      <Card>
+        {MASTER_ENTITIES.map((e, i) => (
+          <ListRow key={e} label={t(`entity.${e}`)} value={String(counts[e])} last={i === MASTER_ENTITIES.length - 1} />
         ))}
-      </View>
+      </Card>
 
-      <Button kind="danger" label={t('auth.logout')} onPress={logout} />
-      <Button kind="outline" label={t('common.back')} onPress={() => router.back()} />
+      <Button kind="danger" icon="logout" label={t('auth.logout')} onPress={logout} />
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  card: { borderWidth: 2, borderColor: colors.border, borderRadius: touch.radius },
-  row: {
-    minHeight: touch.minSize,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    justifyContent: 'center',
-  },
-});

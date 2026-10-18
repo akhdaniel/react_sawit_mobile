@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { Card } from '@/components/Card';
 import { PinPad } from '@/components/PinPad';
 import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
@@ -40,9 +41,11 @@ export default function PinSetupScreen() {
 
   return (
     <Screen title={first == null ? t('auth.pinSetupTitle') : t('auth.pinConfirmTitle')}>
-      <Txt>{t('auth.pinSetupHint', { min: PIN_MIN, max: PIN_MAX })}</Txt>
-      {!!error && <Txt style={{ color: colors.danger, fontWeight: '700' }}>{error}</Txt>}
-      <PinPad key={first ?? 'first'} minLength={PIN_MIN} maxLength={PIN_MAX} onSubmit={submit} disabled={busy} />
+      <Card padded>
+        <Txt style={{ textAlign: 'center' }}>{t('auth.pinSetupHint', { min: PIN_MIN, max: PIN_MAX })}</Txt>
+        {!!error && <Txt style={{ color: colors.danger, fontWeight: '700', textAlign: 'center' }}>{error}</Txt>}
+        <PinPad key={first ?? 'first'} minLength={PIN_MIN} maxLength={PIN_MAX} onSubmit={submit} disabled={busy} />
+      </Card>
     </Screen>
   );
 }
