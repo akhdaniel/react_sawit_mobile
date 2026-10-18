@@ -13,6 +13,8 @@ const extraSchema = z.object({
   autoLockMinutes: z.number().positive().default(5),
   /** Jam masuk kerja (zona estate); check-in setelahnya default "terlambat". */
   workStartTime: z.string().regex(/^\d{2}:\d{2}$/).default('06:30'),
+  /** Setelah jam ini tiket yang belum masuk SPB ditandai potensi restan. */
+  restanCutoff: z.string().regex(/^\d{2}:\d{2}$/).default('16:00'),
 });
 
 export type AppConfig = z.infer<typeof extraSchema>;

@@ -102,8 +102,18 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
       if (p.parent_spb_uuid && !store.transactions.has(p.parent_spb_uuid)) {
         return { ok: false, reason: 'parent_spb_not_found', flags };
       }
-      const missing = p.harvest_ticket_uuids.filter((u) => store.transactions.get(u)?.status !== 'accepted');
-      if (missing.length) return { ok: false, reason: 'harvest_ticket_not_accepted', flags };
+      // Tiket bisa dibuat di HP mandor yang belum sinkron → terima dengan flag (rekonsiliasi server).
+      const rejected = p.harvest_ticket_uuids.filter((u) => store.transactions.get(u)?.status === 'rejected');
+      if (rejected.length) return { ok: false, reason: 'harvest_ticket_rejected', flags };
+      if (p.harvest_ticket_uuids.some((u) => !store.transactions.has(u))) flags.push('unsynced_ticket');
+      // Satu tiket hanya di satu SPB, kecuali langsir yang meneruskan tiket dari SPB induk.
+      const parentTickets = new Set(
+        p.parent_spb_uuid ? (store.acceptedOfType('spb').find((x) => x.mobile_uuid === p.parent_spb_uuid)?.payload.harvest_ticket_uuids ?? []) : [],
+      );
+      const used = new Set(store.acceptedOfType('spb').flatMap((x) => x.payload.harvest_ticket_uuids));
+      if (p.harvest_ticket_uuids.some((u) => used.has(u) && !parentTickets.has(u))) {
+        return { ok: false, reason: 'ticket_already_transported', flags };
+      }
       if (p.destination === 'partner_mill') flags.push('partner_mill');
       return { ok: true, flags };
     }

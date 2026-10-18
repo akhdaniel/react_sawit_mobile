@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { router, useLocalSearchParams } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Button } from '@/components/Button';
@@ -14,6 +15,8 @@ import { canCorrect, ticketView } from '@/db/repositories/harvest';
 import { harvestTicket } from '@/db/schema';
 import { totalBunches } from '@/features/harvest/calc';
 import { encodeTicketQr } from '@/features/harvest/qr';
+import { printWithSavedPrinter, PrinterNotConfiguredError } from '@/features/transport/print';
+import { buildTicketReceipt } from '@/features/transport/receipts';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
@@ -26,6 +29,8 @@ export default function HarvestTicketScreen() {
   const originalNo = useTableQuery(['harvest_ticket'], () =>
     tk?.correctionOf ? (db.select({ n: harvestTicket.ticketNo }).from(harvestTicket).where(eq(harvestTicket.mobileUuid, tk.correctionOf)).get()?.n ?? null) : null,
   );
+
+  const [printing, setPrinting] = useState(false);
 
   if (!tk) {
     return (
@@ -44,6 +49,35 @@ export default function HarvestTicketScreen() {
     estKg: tk.estKg,
     workDate: tk.workDate,
   });
+
+  const print = async () => {
+    setPrinting(true);
+    try {
+      await printWithSavedPrinter(
+        db,
+        buildTicketReceipt({
+          ticketNo: tk.ticketNo,
+          workDate: tk.workDate,
+          blockCode: tk.blockCode,
+          tphCode: tk.tphCode,
+          harvesterName: tk.harvesterName,
+          ripe: tk.ripe,
+          unripe: tk.unripe,
+          rotten: tk.rotten,
+          looseFruitKg: tk.looseFruitKg,
+          estKg: tk.estKg,
+          lateEntry: tk.isLateEntry,
+          qr,
+        }),
+      );
+      Alert.alert(t('harvest.print'), t('transport.printed'));
+    } catch (e) {
+      if (e instanceof PrinterNotConfiguredError) router.push('/printer');
+      else Alert.alert(t('harvest.print'), t('printer.failed', { message: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   return (
     <Screen title={tk.ticketNo} subtitle={fresh ? t('harvest.saved', { no: tk.ticketNo }) : t('harvest.detail')} back>
@@ -68,6 +102,7 @@ export default function HarvestTicketScreen() {
         <ListRow icon="grain" tone="accent" label={t('harvest.looseFruit')} value={String(tk.looseFruitKg)} last={!originalNo} />
         {originalNo && <ListRow icon="history" tone="danger" label={t('harvest.correctionOf', { no: originalNo })} last />}
       </Card>
+      <Button kind="outline" icon="printer" label={t('harvest.print')} busy={printing} onPress={() => void print()} />
       {!corrected && (
         <Button
           kind={tk.status === 'rejected' ? 'primary' : 'outline'}

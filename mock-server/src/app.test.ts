@@ -250,6 +250,34 @@ describe('transaksi', () => {
     assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['not_checked_in', 'accepted', 'already_checked_in']);
   });
 
+  it('SPB: tiket belum sinkron diterima dengan flag; tiket ganda ditolak kecuali langsir', async () => {
+    const { access_token, user } = await login('kerani.transport');
+    const spbItem = (tickets: string[], parent: string | null = null, n = 1) => ({
+      type: 'spb',
+      mobile_uuid: randomUUID(),
+      meta: meta(user.id),
+      payload: {
+        work_date: today,
+        spb_no: `AFD01-${today.slice(2).replaceAll('-', '')}-AB12-${String(n).padStart(4, '0')}`,
+        vehicle_id: 1,
+        driver_name: 'Budi',
+        destination: 'internal_mill',
+        parent_spb_uuid: parent,
+        total_bunch: 10,
+        est_kg: 185,
+        photo_ids: [randomUUID(), randomUUID()],
+        harvest_ticket_uuids: tickets,
+      },
+    });
+    const t1 = randomUUID();
+    const first = spbItem([t1], null, 1);
+    const r = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [first, spbItem([t1], null, 2), spbItem([t1], first.mobile_uuid, 3)] }, access_token)).json,
+    );
+    assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['accepted', 'ticket_already_transported', 'accepted']);
+    assert.deepEqual(store.transactions.get(first.mobile_uuid)?.flags, ['unsynced_ticket']);
+  });
+
   it('payload tidak valid ditolak per item, tidak menggagalkan batch', async () => {
     const { access_token, user } = await login();
     const broken = { ...checkIn(user.id, 2, 2), payload: { work_date: 'kemarin' } };

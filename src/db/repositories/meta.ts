@@ -17,6 +17,8 @@ export const META_KEYS = {
   lastUserId: 'last_user_id',
   /** Gang terakhir dipilih di layar absensi/penugasan. */
   selectedGangId: 'selected_gang_id',
+  /** Printer BLE terpilih (JSON {id,name}). */
+  printer: 'printer',
 } as const;
 export type MetaKey = (typeof META_KEYS)[keyof typeof META_KEYS];
 

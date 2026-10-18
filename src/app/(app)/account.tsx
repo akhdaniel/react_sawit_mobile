@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
@@ -101,6 +102,10 @@ export default function AccountScreen() {
           setChecking(false);
         }}
       />
+
+      <Card>
+        <ListRow icon="printer" label={t('account.printer')} last onPress={() => router.push('/printer')} />
+      </Card>
 
       <SectionTitle>{t('home.masterTitle')}</SectionTitle>
       <Card>

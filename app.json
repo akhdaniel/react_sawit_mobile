@@ -83,7 +83,8 @@
       "apiBaseUrl": "http://10.0.2.2:8080/xsm/v1",
       "estateUtcOffsetMinutes": 420,
       "autoLockMinutes": 5,
-      "workStartTime": "06:30"
+      "workStartTime": "06:30",
+      "restanCutoff": "16:00"
     }
   }
 }
