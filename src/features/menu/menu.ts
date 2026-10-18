@@ -23,13 +23,13 @@ export interface MenuItem {
   /** Tahap pengembangan saat modul tersedia. */
   stage: number;
   /** Rute layar modul bila sudah tersedia. */
-  route?: '/attendance' | '/assignment' | '/sync';
+  route?: '/attendance' | '/assignment' | '/sync' | '/harvest' | '/transport' | '/upkeep' | '/approval' | '/daily-report';
 }
 
 export const MENU: readonly MenuItem[] = [
   { key: 'attendance', icon: 'account-check', label: 'menu.attendance', roles: ['mandor_panen', 'mandor_rawat', 'kerani_panen'], stage: 4, route: '/attendance' },
   { key: 'assignment', icon: 'clipboard-account', label: 'menu.assignment', roles: ['mandor_panen', 'mandor_rawat'], stage: 4, route: '/assignment' },
-  { key: 'harvest', icon: 'palm-tree', label: 'menu.harvest', roles: ['mandor_panen', 'kerani_panen'], stage: 5 },
+  { key: 'harvest', icon: 'palm-tree', label: 'menu.harvest', roles: ['mandor_panen', 'kerani_panen'], stage: 5, route: '/harvest' },
   { key: 'transport', icon: 'truck', label: 'menu.transport', roles: ['kerani_transport'], stage: 6 },
   { key: 'upkeep', icon: 'sprout', label: 'menu.upkeep', roles: ['mandor_rawat'], stage: 7 },
   { key: 'approval', icon: 'check-decagram', label: 'menu.approval', roles: ['asisten'], stage: 8 },
