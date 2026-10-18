@@ -388,6 +388,25 @@ describe('approval & heartbeat', () => {
     assert.deepEqual(store.transactions.get(att.mobile_uuid)?.flags, ['untrusted_time']);
   });
 
+  it('keputusan approval lewat POST /transactions: hanya asisten, lalu hilang dari inbox', async () => {
+    const mandor = await login('mandor.panen');
+    const att = checkIn(mandor.user.id, 3, 3, { outside_afdeling: true });
+    await call('POST', '/transactions', { items: [att] }, mandor.access_token);
+    const decision = (userId: number) => ({
+      type: 'approval_decision',
+      mobile_uuid: randomUUID(),
+      meta: meta(userId),
+      payload: { target_uuid: att.mobile_uuid, target_type: 'attendance', decision: 'approve', note: null, corrected_json: null },
+    });
+    const byMandor = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [decision(mandor.user.id)] }, mandor.access_token)).json);
+    assert.equal(byMandor.results[0]!.reason, 'forbidden');
+    const asisten = await login('asisten');
+    assert.equal(approvalsResponseSchema.parse((await call('GET', '/approvals?afdeling_id=1', undefined, asisten.access_token)).json).items.length, 1);
+    const ok = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [decision(asisten.user.id)] }, asisten.access_token)).json);
+    assert.equal(ok.results[0]!.status, 'accepted');
+    assert.equal(approvalsResponseSchema.parse((await call('GET', '/approvals?afdeling_id=1', undefined, asisten.access_token)).json).items.length, 0);
+  });
+
   it('heartbeat tersimpan per device', async () => {
     const { access_token } = await login();
     const r = await call('POST', '/device/heartbeat', { app_version: '0.1.0', battery: 0.8, pending_count: 3, last_sync_at: null }, access_token);

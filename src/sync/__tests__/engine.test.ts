@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 
+import { pendingInbox } from '@/db/repositories/approval';
 import { getCursor } from '@/db/repositories/master';
 import { getMeta } from '@/db/repositories/meta';
 import { attendance, block, harvestTicket, photo, workPlan } from '@/db/schema';
@@ -45,6 +46,10 @@ function fakeApi(over: Partial<SyncApi> = {}) {
     async heartbeat(body) {
       calls.push(`heartbeat:${body.pending_count}`);
     },
+    async getApprovals(afd) {
+      calls.push(`approvals:${afd}`);
+      return { items: [{ target_uuid: '11111111-2222-4333-8444-555555555555', target_type: 'attendance', summary: 'x', flags: ['outside_afdeling'] }] };
+    },
     ...over,
   };
   return { api, calls };
@@ -75,7 +80,7 @@ describe('runSync', () => {
     const r = await runSync(deps(db, api, { onStep: (s) => steps.push(s) }));
 
     expect(r.ok).toBe(true);
-    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'heartbeat']);
+    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'heartbeat']);
     expect(calls).toEqual(['push:2', 'photo', 'status:2', 'master:', 'workplan:2026-10-18', 'heartbeat:0']);
     expect(r.push).toMatchObject({ sent: 2, accepted: 2 });
     expect(db.select().from(attendance).get()?.status).toBe('accepted');
@@ -85,6 +90,15 @@ describe('runSync', () => {
     expect(getCursor(db)).toBe('v1');
     expect(getMeta(db, 'last_sync_at')).toBe(ST);
     expect(JSON.parse(getMeta(db, 'last_sync_result')!).ok).toBe(true);
+  });
+
+  it('asisten: inbox approval ditarik per afdeling dan disimpan lokal', async () => {
+    const { db } = createTestDb();
+    const { api, calls } = fakeApi();
+    const r = await runSync(deps(db, api, { approvalAfdelingIds: [1, 2] }));
+    expect(calls.filter((c) => c.startsWith('approvals'))).toEqual(['approvals:1', 'approvals:2']);
+    expect(r.approvals.items).toBe(2);
+    expect(pendingInbox(db)).toHaveLength(1); // target sama → satu baris (afdeling terakhir)
   });
 
   it('offline: berhenti di langkah pertama, data tetap sent untuk dikirim ulang, last_sync_at tidak berubah', async () => {

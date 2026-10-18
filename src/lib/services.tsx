@@ -155,6 +155,10 @@ function createServices(db: AppDatabase): AppServices {
         },
         photoFileExists: (uri) => new File(uri).exists,
         onStep: (step) => useSync.getState().setStep(step),
+        approvalAfdelingIds: (() => {
+          const u = useSession.getState().user;
+          return u?.roles.includes('asisten') ? u.afdeling_ids : [];
+        })(),
       });
       useSync.getState().setResult(result);
       return result;

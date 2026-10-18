@@ -7,6 +7,7 @@
  * langkah dicatat lalu langkah lain tetap dicoba.
  */
 import { getPendingSummary } from '../db/repositories/pending';
+import { replaceInbox, type InboxItem } from '../db/repositories/approval';
 import { applyMasterChanges, getCursor, upsertWorkPlans } from '../db/repositories/master';
 import { getMeta, META_KEYS, setMeta } from '../db/repositories/meta';
 import {
@@ -35,10 +36,11 @@ export interface SyncApi {
   getStatus(ids: string[]): Promise<{ results: StatusResult[] }>;
   uploadPhoto(photo: PhotoRow): Promise<{ photo_id: number }>;
   heartbeat(body: { app_version: string; battery: number | null; pending_count: number; last_sync_at: string | null }): Promise<void>;
+  getApprovals(afdelingId: number): Promise<{ items: InboxItem[] }>;
 }
 
-export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'heartbeat';
-export const SYNC_STEPS: readonly SyncStep[] = ['push', 'photos', 'status', 'master', 'workplan', 'heartbeat'];
+export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'heartbeat';
+export const SYNC_STEPS: readonly SyncStep[] = ['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'heartbeat'];
 
 export type SyncErrorKind = 'offline' | 'auth' | 'server' | 'unknown';
 
@@ -51,6 +53,7 @@ export interface SyncResult {
   status: { checked: number; posted: number; rejected: number };
   master: { pages: number; upserted: number; deleted: number };
   workplan: { items: number };
+  approvals: { items: number };
   /** Error yang menghentikan sinkron (offline/auth) atau error per langkah. */
   errors: { step: SyncStep; kind: SyncErrorKind; message: string }[];
 }
@@ -65,6 +68,8 @@ export interface SyncDeps {
   battery(): Promise<number | null>;
   photoFileExists(localUri: string): boolean;
   onStep?(step: SyncStep): void;
+  /** Afdeling yang inbox approval-nya ditarik (hanya untuk peran asisten). */
+  approvalAfdelingIds?: number[];
   batchSize?: number;
   statusChunk?: number;
   photoLimit?: number;
@@ -90,6 +95,7 @@ function emptyResult(startedAt: string): SyncResult {
     status: { checked: 0, posted: 0, rejected: 0 },
     master: { pages: 0, upserted: 0, deleted: 0 },
     workplan: { items: 0 },
+    approvals: { items: 0 },
     errors: [],
   };
 }
@@ -174,6 +180,14 @@ async function pullWorkplan(d: SyncDeps, r: SyncResult): Promise<void> {
   r.workplan.items = upsertWorkPlans(d.db, res.items);
 }
 
+async function pullApprovals(d: SyncDeps, r: SyncResult): Promise<void> {
+  for (const afd of d.approvalAfdelingIds ?? []) {
+    const res = await d.api.getApprovals(afd);
+    replaceInbox(d.db, afd, res.items, d.nowIso());
+    r.approvals.items += res.items.length;
+  }
+}
+
 async function sendHeartbeat(d: SyncDeps): Promise<void> {
   await d.api.heartbeat({
     app_version: d.appVersion,
@@ -191,6 +205,7 @@ export async function runSync(d: SyncDeps): Promise<SyncResult> {
     ['status', () => pollStatus(d, r)],
     ['master', () => pullMaster(d, r)],
     ['workplan', () => pullWorkplan(d, r)],
+    ['approvals', () => pullApprovals(d, r)],
     ['heartbeat', () => sendHeartbeat(d)],
   ];
   try {

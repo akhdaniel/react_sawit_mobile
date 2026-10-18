@@ -32,8 +32,8 @@ export const MENU: readonly MenuItem[] = [
   { key: 'harvest', icon: 'palm-tree', label: 'menu.harvest', roles: ['mandor_panen', 'kerani_panen'], stage: 5, route: '/harvest' },
   { key: 'transport', icon: 'truck', label: 'menu.transport', roles: ['kerani_transport'], stage: 6, route: '/transport' },
   { key: 'upkeep', icon: 'sprout', label: 'menu.upkeep', roles: ['mandor_rawat'], stage: 7, route: '/upkeep' },
-  { key: 'approval', icon: 'check-decagram', label: 'menu.approval', roles: ['asisten'], stage: 8 },
-  { key: 'daily_report', icon: 'file-document-edit', label: 'menu.dailyReport', roles: ['mandor_panen', 'mandor_rawat', 'asisten'], stage: 8 },
+  { key: 'approval', icon: 'check-decagram', label: 'menu.approval', roles: ['asisten'], stage: 8, route: '/approval' },
+  { key: 'daily_report', icon: 'file-document-edit', label: 'menu.dailyReport', roles: ['mandor_panen', 'mandor_rawat', 'asisten'], stage: 8, route: '/daily-report' },
   { key: 'sync', icon: 'sync', label: 'menu.sync', roles: 'all', stage: 3, route: '/sync' },
 ];
 

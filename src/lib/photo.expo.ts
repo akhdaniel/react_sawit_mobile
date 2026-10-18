@@ -42,3 +42,12 @@ export const expoPhotoIO: PhotoIO = {
     }
   },
 };
+
+/** Simpan PNG tanda tangan apa adanya (tanpa kompres JPEG) + SHA-256. */
+export async function persistSignature(tmpUri: string, id: string): Promise<{ localUri: string; sizeBytes: number; sha256: string }> {
+  const dir = new Directory(Paths.document, PHOTO_DIR);
+  if (!dir.exists) dir.create({ intermediates: true });
+  const dest = new File(dir, `${id}.png`);
+  new File(toUri(tmpUri)).moveSync(dest);
+  return { localUri: dest.uri, sizeBytes: dest.size, sha256: (await dest.digest('SHA-256')).toLowerCase() };
+}

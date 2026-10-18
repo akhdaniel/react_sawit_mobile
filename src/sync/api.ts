@@ -4,6 +4,7 @@
 import type { PhotoRow } from '../db/repositories/outbox';
 import type { ApiClient } from './api-client';
 import {
+  approvalsResponseSchema,
   heartbeatResponseSchema,
   masterResponseSchema,
   photoUploadResponseSchema,
@@ -16,7 +17,10 @@ import type { SyncApi } from './engine';
 /** Bagian file untuk FormData — RN memakai {uri,name,type}, Node memakai Blob. */
 export type PhotoFilePart = (photo: PhotoRow) => Blob | { uri: string; name: string; type: string } | Promise<Blob>;
 
-export const rnPhotoFilePart: PhotoFilePart = (p) => ({ uri: p.localUri, name: `${p.id}.jpg`, type: 'image/jpeg' });
+export const rnPhotoFilePart: PhotoFilePart = (p) =>
+  p.localUri.endsWith('.png')
+    ? { uri: p.localUri, name: `${p.id}.png`, type: 'image/png' }
+    : { uri: p.localUri, name: `${p.id}.jpg`, type: 'image/jpeg' };
 
 export function createSyncApi(api: ApiClient, filePart: PhotoFilePart = rnPhotoFilePart): SyncApi {
   return {
@@ -32,12 +36,13 @@ export function createSyncApi(api: ApiClient, filePart: PhotoFilePart = rnPhotoF
       }),
     async uploadPhoto(p) {
       const form = new FormData();
-      form.append('file', (await filePart(p)) as Blob, `${p.id}.jpg`);
+      form.append('file', (await filePart(p)) as Blob, p.localUri.endsWith('.png') ? `${p.id}.png` : `${p.id}.jpg`);
       form.append('mobile_uuid_photo', p.id);
       form.append('sha256', p.sha256);
       form.append('transaction_uuid', p.transactionUuid ?? '');
       return api.request('POST', '/photos', { formData: form, schema: photoUploadResponseSchema, timeoutMs: 60_000 });
     },
+    getApprovals: (afdelingId) => api.request('GET', `/approvals?afdeling_id=${afdelingId}`, { schema: approvalsResponseSchema }),
     async heartbeat(body) {
       await api.request('POST', '/device/heartbeat', { body, schema: heartbeatResponseSchema, retry: false });
     },

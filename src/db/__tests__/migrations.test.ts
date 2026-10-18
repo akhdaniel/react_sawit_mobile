@@ -14,7 +14,7 @@ describe('migrasi', () => {
       .sort();
     expect(tables).toEqual(
       [
-        'activity', 'afdeling', 'app_meta', 'approval_decision', 'assignment', 'attendance', 'block',
+        'activity', 'afdeling', 'app_meta', 'approval_decision', 'approval_inbox', 'assignment', 'attendance', 'block',
         'daily_report', 'doc_sequence', 'dosage_rule', 'employee', 'estate', 'gang', 'harvest_ticket',
         'material_usage', 'penalty_rule', 'photo', 'product', 'spb', 'spb_line', 'sync_cursor', 'tph',
         'upkeep', 'vehicle', 'work_plan',

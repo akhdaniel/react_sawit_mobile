@@ -4,7 +4,7 @@ Aplikasi Android lapangan **offline-first** untuk perkebunan kelapa sawit (mando
 Semua data lapangan disimpan di SQLite terenkripsi di HP dan disinkronkan ke ERP Xerpium (Odoo 18)
 melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 
-> **Status: Tahap 4 — Absensi & penugasan.**
+> **Status: Tahap 8 — Approval & laporan harian.**
 > - Tahap 1 (fondasi): Expo SDK 58, DB terenkripsi + migrasi, kontrak zod bersama, trigger append-only, mock server.
 > - Tahap 2: login online, PIN offline + kunci otomatis, menu per peran, trusted-time (modul native jam monotonic),
 >   deteksi root/emulator/fake GPS + banner, HTTP client (timeout/retry/backoff) dan refresh token.
@@ -14,7 +14,10 @@ melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 > - Tahap 4: absensi per kemandoran dengan foto kamera dalam aplikasi, cek polygon afdeling, koreksi
 >   append-only, dan penugasan berdasarkan rencana kerja / di luar rencana.
 >
-> Berikutnya: panen (tahap 5), SPB + printer (6), perawatan + material (7), approval + laporan (8).
+> - Tahap 5: tiket panen offline (≤ 3 ketukan), susulan otomatis, est_kg & estimasi premi, koreksi, QR.
+> - Tahap 6: SPB dari pindai QR / tiket lokal, langsir, potensi restan, cetak ESC/POS via printer Bluetooth.
+> - Tahap 7: perawatan + pemakaian material dengan deteksi over-dose ke antrean approval.
+> - Tahap 8: inbox approval offline untuk asisten, keputusan, laporan harian bertanda tangan.
 
 ## Prasyarat
 
@@ -217,6 +220,86 @@ dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
 - Lalu pilih pekerja dari daftar yang sudah absen hadir dan belum pulang.
 - Pekerja tanpa check-in hadir tidak bisa ditugaskan.
 
+## Panen (tahap 5)
+
+`app/(app)/harvest/` · `db/repositories/harvest.ts` · `features/harvest/`
+
+**Input tiket (≤ 3 ketukan):** pilih TPH, pilih pemanen yang sudah absen hadir, isi janjang matang, lalu Simpan.
+- Blok default diambil dari penugasan panen atau rencana kerja gang hari ini.
+- Rincian mentah, busuk, janjang kosong, tangkai panjang, dan brondolan bersifat opsional.
+
+**Nomor tiket** dibuat offline secara atomik, misalnya `AFD01-261018-K3ZQ-0007`.
+
+**Susulan:** tiket kedua untuk TPH + pemanen + tanggal yang sama otomatis ditandai `is_late_entry`, dan peringatannya tampil sebelum menyimpan.
+
+**Kalkulasi:**
+- `est_kg = (matang + mentah + busuk) × BJR blok`.
+- Estimasi premi: `per_bunch` = tarif × janjang matang; `daily` = tarif. Dikurangi denda
+  `MENTAH` × mentah dan `TGKPJG` × tangkai panjang (dari `penalty_rule`).
+
+**Validasi:** pemanen wajib hadir, TPH harus milik blok, blok harus TM, dan tiket tidak boleh kosong.
+
+**Koreksi** = tiket baru bernomor baru dengan `correction_of`. Berlaku juga untuk tiket yang ditolak server. Tiket asal tidak diubah.
+
+**QR tiket** `XSM1|HT|<uuid>|<no>|<blok>|<tph>|<janjang>|<kg>|<tanggal>` dipindai kerani transport di HP lain yang offline.
+
+## Transport / SPB (tahap 6)
+
+`app/(app)/transport/` · `db/repositories/transport.ts` · `lib/escpos.ts` · `lib/printer.ts`
+
+**Membuat SPB:**
+- Isi kendaraan, sopir, dan tujuan (PKS sendiri/mitra).
+- Tambahkan tiket dengan **pindai QR** (VisionCamera v5 + ML Kit) atau dengan memilih tiket di HP ini.
+- Ambil minimal 2 foto muatan.
+- Nomor SPB dibuat offline. Total janjang dan kg dijumlahkan dari tiket.
+
+**Aturan tiket:**
+- Satu tiket hanya boleh ada di satu SPB aktif.
+- **Langsir** (`parent_spb_uuid`) boleh meneruskan tiket dari SPB induk.
+
+**Potensi restan:** tiket hari ini yang belum masuk SPB. Peringatannya berubah merah setelah `restanCutoff` (default 16:00).
+
+**Server:**
+- SPB yang memuat tiket yang belum disinkronkan mandor tetap diterima dengan flag `unsynced_ticket`, lalu direkonsiliasi server.
+- SPB yang memuat tiket yang sudah ditolak server akan ditolak.
+
+**Printer thermal 58 mm (ESC/POS lewat BLE):**
+- Pilih printer di Akun → Printer Bluetooth (scan, pilih, cetak uji).
+- Struk SPB dan tiket panen bisa dicetak, termasuk QR.
+- Encoder-nya murni dan diuji unit: 32 kolom, ASCII aman, QR `GS ( k`, cut.
+- Data dikirim per potongan sesuai MTU.
+
+## Perawatan & material (tahap 7)
+
+`app/(app)/upkeep/` · `db/repositories/upkeep.ts` · `features/upkeep/calc.ts`
+
+**Input perawatan:**
+- Pilih kegiatan upkeep dan blok, lalu pekerja hadir.
+- Isi HK, ditambah luas realisasi (`per_ha`, maksimal seluas blok) atau jumlah pokok (`per_tree`).
+- Foto opsional. Estimasi upah tampil sesuai `wage_basis`.
+
+**Material** mengikuti aturan dosis kegiatan dan dicek langsung saat diisi:
+- Batas = `dose_per_ha × realized_ha × (1 + tolerance_pct)`.
+- Melebihi batas → `over_dose = true`, catatan wajib diisi, dan item masuk antrean approval asisten.
+
+**Pengiriman:** upkeep dan setiap material adalah transaksi terpisah. Material selalu dikirim sesudah upkeep-nya.
+
+**Server** menghitung ulang dosis, dan menolak material yang melebihi dosis tetapi tidak ditandai over-dose.
+
+## Approval & laporan harian (tahap 8)
+
+**Approval asisten** (`app/(app)/approval.tsx`) bekerja offline:
+- Saat sinkron, inbox `GET /approvals` per afdeling disimpan ke tabel lokal `approval_inbox` (migrasi `0004`).
+- Asisten memeriksa item berflag: fake GPS, root, waktu tidak terkalibrasi, di luar afdeling, over-dose, susulan, dan lain-lain.
+- Keputusan **setujui / minta koreksi / tolak** disimpan sebagai transaksi `approval_decision` dan dikirim saat sinkron.
+  Catatan wajib untuk tolak dan koreksi.
+- Server hanya menerima keputusan dari peran asisten. Item yang sudah diputuskan hilang dari inbox pada sinkron berikutnya.
+
+**Laporan harian** (`app/(app)/daily-report/`):
+- Ringkasan per gang dihitung dari data lokal: kehadiran, penugasan, panen (tiket, janjang, kg, susulan, belum terangkut), dan perawatan (HK, ha, over-dose).
+- Mandor/asisten membubuhkan tanda tangan di layar (`react-native-view-shot` → PNG + SHA-256).
+- Laporan ulang untuk gang + tanggal yang sama menjadi koreksi laporan sebelumnya.
+
 ## Arsitektur
 
 ```
@@ -240,6 +323,10 @@ src/
   features/attendance/ aksi absensi & penugasan, pilihan gang
   features/camera/ kamera dalam aplikasi
   features/common/ tx-factory (kolom anti-fraud transaksi)
+  features/harvest/ kalkulasi panen, QR tiket, aksi simpan
+  features/transport/ aksi SPB, struk ESC/POS, pemindai QR, cetak
+  features/upkeep/ kalkulasi dosis & upah, aksi simpan
+  features/report/ keputusan approval, laporan harian
   sync/            engine, api (SyncApi), api-client, http, background-task, contract
   i18n/id.ts       semua teks UI bahasa Indonesia
   theme/           warna kontras tinggi, target sentuh 56 dp, font 18 sp

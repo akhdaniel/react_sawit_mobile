@@ -140,7 +140,11 @@ export function createApp(store: Store) {
         return { mobile_uuid: uuidGuess, status: 'rejected' as const, server_id: null, reason: `invalid_payload: ${zodMessage(parsed.error)}` };
       }
       const item = parsed.data;
-      const verdict = evaluate(store, item, userId);
+      const roles = (req as Authed).session.user.roles;
+      const verdict =
+        item.type === 'approval_decision' && !roles.includes('asisten')
+          ? { ok: false, reason: 'forbidden', flags: [] as string[] }
+          : evaluate(store, item, userId);
       const serverId = verdict.ok ? store.allocServerId() : null;
       store.transactions.set(item.mobile_uuid, {
         item,
@@ -151,6 +155,9 @@ export function createApp(store: Store) {
         receivedAt: store.opts.now(),
         userId,
       });
+      if (verdict.ok && item.type === 'approval_decision') {
+        store.decisions.set(item.mobile_uuid, { targetUuid: item.payload.target_uuid, decision: item.payload.decision, userId });
+      }
       return verdict.ok
         ? { mobile_uuid: item.mobile_uuid, status: 'accepted' as const, server_id: serverId, reason: null }
         : { mobile_uuid: item.mobile_uuid, status: 'rejected' as const, server_id: null, reason: verdict.reason ?? null };

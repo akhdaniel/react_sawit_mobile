@@ -22,3 +22,16 @@ export const docSequence = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.docType, t.prefix] })],
 );
+
+/**
+ * Cache antrean approval asisten dari GET /approvals (milik server, ditarik saat sinkron)
+ * agar asisten bisa memeriksa dan memutuskan tanpa sinyal.
+ */
+export const approvalInbox = sqliteTable('approval_inbox', {
+  targetUuid: text('target_uuid').primaryKey(),
+  targetType: text('target_type').notNull(),
+  summary: text('summary').notNull(),
+  flags: text('flags', { mode: 'json' }).$type<string[]>().notNull(),
+  afdelingId: integer('afdeling_id').notNull(),
+  fetchedAt: text('fetched_at').notNull(),
+});
