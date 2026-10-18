@@ -15,6 +15,20 @@
       "when": 1792304905212,
       "tag": "0001_append_only_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792314671736,
+      "tag": "0002_time_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792314674078,
+      "tag": "0003_append_only_guards_v2",
+      "breakpoints": true
     }
   ]
 }

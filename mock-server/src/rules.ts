@@ -32,6 +32,7 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
   if (item.meta.user_id !== userId) return { ok: false, reason: 'user_mismatch', flags };
   if (item.meta.mocked) flags.push('mocked_gps');
   if (item.meta.rooted) flags.push('rooted_device');
+  if (item.meta.time_source === 'device') flags.push('untrusted_time');
   if (item.meta.correction_of) {
     if (!store.transactions.has(item.meta.correction_of)) return { ok: false, reason: 'correction_target_not_found', flags };
     flags.push('correction');

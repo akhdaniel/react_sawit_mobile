@@ -19,6 +19,7 @@ export const txMetaSchema = z.object({
   device_id: z.string().min(1),
   created_trusted_at: z.iso.datetime({ offset: true }),
   device_time_at: z.iso.datetime({ offset: true }),
+  time_source: z.enum(['server', 'device']),
   lat: z.number().min(-90).max(90).nullable(),
   lng: z.number().min(-180).max(180).nullable(),
   accuracy_m: z.number().nonnegative().nullable(),

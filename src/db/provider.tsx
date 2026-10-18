@@ -1,7 +1,7 @@
 import { addDatabaseChangeListener } from 'expo-sqlite';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { openAppDatabase, type OpenedDatabase } from './client';
+import { getAppDatabase, type OpenedDatabase } from './client';
 
 type DbState =
   | { status: 'opening' }
@@ -23,7 +23,7 @@ export function DatabaseProvider({
 
   useEffect(() => {
     let cancelled = false;
-    openAppDatabase()
+    getAppDatabase()
       .then((opened) => !cancelled && setState({ status: 'ready', ...opened }))
       .catch((e: unknown) => !cancelled && setState({ status: 'error', error: e instanceof Error ? e : new Error(String(e)) }));
     return () => {

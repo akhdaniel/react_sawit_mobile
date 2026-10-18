@@ -4,9 +4,14 @@ Aplikasi Android lapangan **offline-first** untuk perkebunan kelapa sawit (mando
 Semua data lapangan disimpan di SQLite terenkripsi di HP dan disinkronkan ke ERP Xerpium (Odoo 18)
 melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 
-> **Status: Tahap 1 — Fondasi.** Sudah ada: proyek Expo SDK 58, DB lokal terenkripsi + migrasi seluruh skema,
-> kontrak API (zod) yang dipakai bersama, trigger append-only, mock server lengkap, dan unit test.
-> Login, sinkron, dan modul lapangan dikerjakan di tahap berikutnya.
+> **Status: Tahap 3 — Sync engine.**
+> - Tahap 1 (fondasi): Expo SDK 58, DB terenkripsi + migrasi, kontrak zod bersama, trigger append-only, mock server.
+> - Tahap 2: login online, PIN offline + kunci otomatis, menu per peran, trusted-time (modul native jam monotonic),
+>   deteksi root/emulator/fake GPS + banner, HTTP client (timeout/retry/backoff) dan refresh token.
+> - Tahap 3: sync engine (push antrean idempoten, unggah foto, polling posted, delta master berhalaman,
+>   rencana kerja, heartbeat), sinkron latar (Wi-Fi), sinkron otomatis saat Wi-Fi tersambung, layar Sinkron.
+>
+> Modul lapangan (absensi, panen, SPB, perawatan, approval) dikerjakan mulai tahap 4.
 
 ## Prasyarat
 
@@ -71,17 +76,106 @@ npm run prebuild
 
 Folder `android/` tidak di-commit (Continuous Native Generation). Jangan edit manual.
 
+### APK release untuk HP uji
+
+```bash
+cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+
+Hasilnya `android/app/build/outputs/apk/release/app-release.apk`, untuk satu ABI saja (±55 MB) dan sudah membawa bundel JS.
+APK ini ditandatangani debug keystore, jadi hanya untuk uji, bukan untuk Play Store.
+
+**R8/minify sengaja dimatikan** (`enableMinifyInReleaseBuilds: false` di `app.json`). Dengan R8 aktif,
+APK Tahap 1 crash di Samsung A06 saat start: R8 membuang constructor yang dipanggil lewat refleksi oleh WorkManager
+(`androidx.work.impl.WorkDatabase`, dipakai `expo-background-task`) dan oleh registrar ML Kit.
+Aktifkan lagi hanya bersama keep rules yang sudah diuji di perangkat.
+
 ## Perintah
 
 | Perintah | Fungsi |
 |---|---|
 | `npm test` | Unit test aplikasi (Jest + jest-expo) |
-| `npm run test:mock` | Test kontrak mock server (`node:test`) |
+| `npm run test:mock` | Test mock server + integrasi klien app (login, refresh, kalibrasi waktu, sync engine ujung-ke-ujung) |
 | `npm run test:all` | Keduanya |
 | `npm run typecheck` | TypeScript strict |
 | `npm run lint` | ESLint (eslint-config-expo) |
 | `npm run db:generate -- --name=<nama>` | Buat migrasi baru dari perubahan skema Drizzle |
 | `npm run db:guards -- <file.sql> [--drop]` | Tulis trigger append-only ke migrasi custom |
+
+## Login, PIN, dan sesi (tahap 2)
+
+| Situasi | Perilaku |
+|---|---|
+| Pertama kali | Login online (`POST /auth/token`) lalu buat PIN 4–6 angka |
+| Buka app (offline) | Masukkan PIN; app berjalan penuh tanpa sinyal |
+| Di latar belakang > 5 menit | Terkunci, minta PIN (diukur dengan jam monotonic) |
+| PIN salah 5× | Dikunci 30 detik, lalu berlipat (60, 120, … detik) |
+| PIN salah 10× | Sesi dihapus, wajib login online lagi; data di HP tetap aman |
+| Lupa PIN | Sesi dihapus, login online ulang, lalu buat PIN baru |
+| Token server kedaluwarsa | Hanya sinkron yang terhenti (`AuthRequiredError`); kerja offline jalan terus |
+| Ganti akun / logout | Ditolak selama masih ada data belum terkirim |
+
+- **PIN** disimpan sebagai `SHA-256(salt + PIN)` di `expo-secure-store`.
+- **Token** (`access`, `refresh`, `expires_at`) juga disimpan di `expo-secure-store`.
+- **Menu** per peran ada di `src/features/menu/menu.ts`.
+- **Alamat server** bisa diubah di layar login lewat "Pengaturan server", misalnya ke IP LAN mock server untuk HP fisik.
+  Nilainya disimpan di `app_meta`.
+
+## Trusted time (tahap 2)
+
+`trusted_time = server_time saat kalibrasi terakhir + (elapsedRealtime sekarang − elapsedRealtime saat kalibrasi)`.
+
+- **Modul native lokal `modules/xsm-clock`** (Kotlin) menyediakan `SystemClock.elapsedRealtime()` dan
+  `Settings.Global.BOOT_COUNT`. Jam ini tidak terpengaruh perubahan jam/zona waktu oleh pengguna dan tetap jalan saat HP tidur.
+- **Kalibrasi** terjadi otomatis setiap kali respons API membawa `server_time`. Anchor disimpan di `app_meta`.
+- **Setelah reboot**, anchor batal. Waktu lalu diperkirakan dari jam HP dikoreksi selisih terakhir, sampai sinkron berikutnya.
+  - Transaksi ditandai `time_source = 'device'` (migrasi `0002`), dan server memberi flag `untrusted_time`.
+  - Banner "Jam belum terkalibrasi" tampil.
+- **Banner "Jam HP berbeda X menit"** tampil bila jam HP selisih lebih dari 5 menit dari trusted time.
+- **Tanggal kerja** memakai zona estate (`estateUtcOffsetMinutes`, default WIB +420), bukan zona HP.
+
+## Integritas perangkat (tahap 2)
+
+`jail-monkey` dan `expo-device` mendeteksi root, emulator, hooking, dan aplikasi lokasi palsu.
+Field `location.mocked` dari expo-location mendeteksi fake GPS. Aplikasi **tidak memblokir**: transaksi tetap disimpan
+dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
+
+## Sync engine (tahap 3)
+
+`src/sync/engine.ts` adalah **satu-satunya** tempat aplikasi memanggil API. Langkahnya berurutan:
+
+| Langkah | Isi |
+|---|---|
+| 1. push | Antrean `queued` + `sent`, maks 500 per batch, urut dependensi: absen → penugasan → panen → SPB → rawat → material → laporan → approval |
+| 2. photos | Foto milik transaksi yang sudah dikenal server, multipart + SHA-256 |
+| 3. status | `GET /transactions/status` per 100 id untuk transaksi `accepted` → `posted`/`rejected` |
+| 4. master | `GET /master?since=<cursor>` mengikuti `has_more`; tiap halaman + cursor diterapkan atomik |
+| 5. workplan | `GET /workplan?date=<tanggal kerja>` |
+| 6. heartbeat | `POST /device/heartbeat` (baterai, jumlah pending, sinkron terakhir) |
+
+**Aturan penting:**
+
+- **Idempoten.** Status `sent` berarti hasil kiriman belum pasti, misalnya koneksi putus di tengah. Item `sent` dikirim
+  ulang pada sinkron berikutnya, dan server menjawab `duplicate`, yang dianggap sukses. HTTP 409 untuk seluruh batch
+  juga dianggap duplicate.
+- **Hasil server diterapkan hanya ke kolom status** (`status`, `server_id`, `reject_reason`, `sent_at`, `posted_at`).
+  Trigger append-only menjamin kolom bisnis tidak berubah.
+- **Penanganan error:**
+  - Offline (`NetworkError`) atau token habis (`AuthRequiredError`) → sinkron berhenti, data tetap di antrean.
+    Untuk token habis, layar Sinkron menampilkan form "Login ulang" (password saja, PIN dan data offline tidak terganggu).
+  - Error server pada satu langkah → dicatat, langkah lain tetap dijalankan.
+- **Item yang gagal validasi zod lokal** tidak dikirim dan ditampilkan di layar Sinkron.
+- **Foto:**
+  - File hilang atau ditolak server (4xx) → `failed`.
+  - Gangguan jaringan → kembali `pending`.
+- **Single-flight.** Tombol, sinkron otomatis, dan task latar tidak pernah berjalan bersamaan.
+
+**Kapan sinkron berjalan:**
+
+- **Manual:** tombol di layar Sinkron, yang bisa dibuka dari menu atau dengan mengetuk indikator "X data belum terkirim".
+- **Otomatis:** saat Wi-Fi tersambung dan ada data pending, paling sering tiap 10 menit.
+- **Latar:** `expo-background-task` (WorkManager) tiap ±60 menit, hanya di Wi-Fi, best effort (Android bisa menunda).
+  Task didefinisikan di `src/sync/background-task.ts` dan diimpor dari `app/_layout.tsx`.
 
 ## Arsitektur
 
@@ -98,10 +192,16 @@ src/
     provider.tsx   DatabaseProvider, useDb, useTableQuery
     tx-status.ts   siklus status transaksi
   sync/contract/   skema zod kontrak /xsm/v1 (dipakai app DAN mock-server)
-  lib/             utilitas murni (doc-number; trusted-time, guard, dsb. menyusul)
+  lib/             trusted-time, clock, location, geo, guard, device, config, secure-kv, services
+  features/auth/   SessionService, store sesi, LoginForm, skema form
+  features/menu/   menu per peran
+  features/security/ store integritas & hook peringatan
+  features/sync/   store status sinkron
+  sync/            engine, api (SyncApi), api-client, http, background-task, contract
   i18n/id.ts       semua teks UI bahasa Indonesia
   theme/           warna kontras tinggi, target sentuh 56 dp, font 18 sp
-mock-server/       Express + tsx, data dummy deterministik
+mock-server/       Express + tsx, data dummy deterministik (+ test integrasi klien app)
+modules/xsm-clock/ modul native lokal: elapsedRealtime + BOOT_COUNT
 scripts/           generator trigger append-only
 ```
 
@@ -151,6 +251,7 @@ Tambahan kecil terhadap kontrak awal (perlu dikonfirmasi ke tim backend):
 - `POST /approvals` → setiap item punya `mobile_uuid` sendiri agar idempoten.
 - `afdeling` → `polygon_geojson` (untuk cek absen di luar afdeling).
 - Semua master punya `id` (termasuk `dosage_rule` dan `penalty_rule`) agar delta delete seragam.
+- `meta` transaksi → `time_source` (`server` | `device`).
 
 ## Mock server
 

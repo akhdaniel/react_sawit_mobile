@@ -36,7 +36,21 @@ async function getOrCreateDbKey(): Promise<string> {
   return key;
 }
 
-export async function openAppDatabase(): Promise<OpenedDatabase> {
+let opening: Promise<OpenedDatabase> | null = null;
+
+/**
+ * DB dibuka sekali per proses dan dipakai bersama oleh UI dan background task.
+ * Bila gagal, percobaan berikutnya membuka ulang.
+ */
+export function getAppDatabase(): Promise<OpenedDatabase> {
+  opening ??= openAppDatabase().catch((e: unknown) => {
+    opening = null;
+    throw e;
+  });
+  return opening;
+}
+
+async function openAppDatabase(): Promise<OpenedDatabase> {
   const key = await getOrCreateDbKey();
   // enableChangeListener wajib untuk useLiveQuery dan indikator data belum terkirim.
   const raw = openDatabaseSync(DB_NAME, { enableChangeListener: true });

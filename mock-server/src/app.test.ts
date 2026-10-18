@@ -60,6 +60,7 @@ const meta = (userId: number, over: Record<string, unknown> = {}) => ({
   device_id: 'dev-1',
   created_trusted_at: new Date(now).toISOString(),
   device_time_at: new Date(now).toISOString(),
+  time_source: 'server',
   lat: 0.51,
   lng: 101.41,
   accuracy_m: 5,
@@ -303,6 +304,13 @@ describe('approval & heartbeat', () => {
     assert.equal(after.items.length, 0);
 
     assert.equal((await call('GET', '/approvals', undefined, mandor.access_token)).status, 403);
+  });
+
+  it('transaksi dengan waktu perangkat (anchor hilang) diberi flag untrusted_time', async () => {
+    const mandor = await login('mandor.panen');
+    const att = { ...checkIn(mandor.user.id, 5, 5), meta: meta(mandor.user.id, { time_source: 'device' }) };
+    await call('POST', '/transactions', { items: [att] }, mandor.access_token);
+    assert.deepEqual(store.transactions.get(att.mobile_uuid)?.flags, ['untrusted_time']);
   });
 
   it('heartbeat tersimpan per device', async () => {

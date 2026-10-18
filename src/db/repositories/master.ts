@@ -4,7 +4,7 @@
 import { count, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
-import type { MasterChanges } from '../../sync/contract';
+import type { MasterChanges, MasterRecord } from '../../sync/contract';
 import { MASTER_ENTITIES, masterTables, syncCursor, type MasterEntity } from '../schema';
 import type { AppDatabase } from '../types';
 
@@ -48,14 +48,7 @@ export function applyMasterChanges(db: AppDatabase, changes: MasterChanges, curs
       if (!delta) continue;
       const table = masterTables[entity];
       const idCol = getTableColumns(table).id as SQLiteColumn;
-      const rows = (delta.upserts as Row[]).map((r) => apiRecordToRow(table, r));
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        tx.insert(table)
-          .values(rows.slice(i, i + CHUNK) as never)
-          .onConflictDoUpdate({ target: idCol, set: upsertSet(table) })
-          .run();
-      }
-      upserted += rows.length;
+      upserted += upsertRows(tx as unknown as AppDatabase, entity, delta.upserts as Row[]);
       for (let i = 0; i < delta.deletes.length; i += CHUNK) {
         tx.delete(table).where(inArray(idCol, delta.deletes.slice(i, i + CHUNK))).run();
       }
@@ -64,6 +57,28 @@ export function applyMasterChanges(db: AppDatabase, changes: MasterChanges, curs
     setCursor(tx as unknown as AppDatabase, MASTER_CURSOR_KEY, cursor);
   });
   return { upserted, deleted };
+}
+
+function upsertRows(db: AppDatabase, entity: MasterEntity, records: Row[]): number {
+  const table = masterTables[entity];
+  const idCol = getTableColumns(table).id as SQLiteColumn;
+  const rows = records.map((r) => apiRecordToRow(table, r));
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    db.insert(table)
+      .values(rows.slice(i, i + CHUNK) as never)
+      .onConflictDoUpdate({ target: idCol, set: upsertSet(table) })
+      .run();
+  }
+  return rows.length;
+}
+
+/** Rencana kerja terbaru dari GET /workplan (milik server, tanpa mengubah cursor). */
+export function upsertWorkPlans(db: AppDatabase, items: MasterRecord<'work_plan'>[]): number {
+  let n = 0;
+  db.transaction((tx) => {
+    n = upsertRows(tx as unknown as AppDatabase, 'work_plan', items as unknown as Row[]);
+  });
+  return n;
 }
 
 export function getCursor(db: AppDatabase, entity = MASTER_CURSOR_KEY): string | null {

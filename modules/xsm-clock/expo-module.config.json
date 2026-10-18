@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "apple"],
+  "apple": {
+    "modules": ["XsmClockModule"]
+  },
+  "android": {
+    "modules": ["com.xerpium.sawit.clock.XsmClockModule"]
+  }
+}

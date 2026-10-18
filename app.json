@@ -3,7 +3,7 @@
     "name": "Xerpium Sawit",
     "slug": "xerpium-sawit-mobile",
     "scheme": "xerpiumsawit",
-    "version": "0.1.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -35,7 +35,8 @@
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.RECORD_AUDIO"
       ],
-      "allowBackup": false
+      "allowBackup": false,
+      "versionCode": 3
     },
     "plugins": [
       "expo-router",
@@ -67,7 +68,9 @@
         {
           "android": {
             "usesCleartextTraffic": true,
-            "minSdkVersion": 26
+            "minSdkVersion": 26,
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
           }
         }
       ],
@@ -77,7 +80,9 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://10.0.2.2:8080/xsm/v1"
+      "apiBaseUrl": "http://10.0.2.2:8080/xsm/v1",
+      "estateUtcOffsetMinutes": 420,
+      "autoLockMinutes": 5
     }
   }
 }

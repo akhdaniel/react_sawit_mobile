@@ -11,6 +11,7 @@ export function txCommon(overrides: Record<string, unknown> = {}) {
     deviceId: 'dev-test-001',
     createdTrustedAt: '2026-10-18T01:00:00.000Z',
     deviceTimeAt: '2026-10-18T01:00:05.000Z',
+    timeSource: 'server' as const,
     lat: 0.51,
     lng: 101.45,
     accuracyM: 8,
@@ -35,4 +36,28 @@ export function harvestTicketRow(overrides: Partial<typeof harvestTicket.$inferI
     status: 'queued' as const,
     ...overrides,
   } satisfies typeof harvestTicket.$inferInsert;
+}
+
+export function attendanceRow(overrides: Record<string, unknown> = {}) {
+  return {
+    ...txCommon(),
+    workDate: '2026-10-18',
+    employeeId: 10,
+    gangId: 1,
+    type: 'check_in' as const,
+    attStatus: 'hadir' as const,
+    status: 'queued' as const,
+    ...overrides,
+  };
+}
+
+export function photoRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: uuid(),
+    localUri: 'file:///data/photo.jpg',
+    sha256: 'a'.repeat(64),
+    sizeBytes: 1234,
+    takenTrustedAt: '2026-10-18T01:00:00.000Z',
+    ...overrides,
+  };
 }

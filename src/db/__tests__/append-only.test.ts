@@ -24,6 +24,14 @@ describe('trigger append-only', () => {
     const { db, where } = setup(status);
     expect(() => db.update(harvestTicket).set({ ripe: 99 }).where(where).run()).toThrow(/TX_APPEND_ONLY/);
     expect(() => db.update(harvestTicket).set({ lat: 1 }).where(where).run()).toThrow(/TX_APPEND_ONLY/);
+    expect(() => db.update(harvestTicket).set({ timeSource: 'device' }).where(where).run()).toThrow(/TX_APPEND_ONLY/);
+  });
+
+  it('time_source default "device" bila tidak diisi (konservatif)', () => {
+    const { db } = createTestDb();
+    const { timeSource: _ignored, ...row } = harvestTicketRow();
+    db.insert(harvestTicket).values(row).run();
+    expect(db.select().from(harvestTicket).get()?.timeSource).toBe('device');
   });
 
   it('sync engine tetap boleh memperbarui kolom status setelah terkirim', () => {

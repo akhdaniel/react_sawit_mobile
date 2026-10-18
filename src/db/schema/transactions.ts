@@ -18,6 +18,11 @@ const txColumns = () => ({
   createdTrustedAt: text('created_trusted_at').notNull(),
   /** Jam HP saat dibuat — hanya untuk audit selisih dengan trusted time. */
   deviceTimeAt: text('device_time_at').notNull(),
+  /**
+   * 'server' = dari anchor waktu server + jam monotonic; 'device' = anchor hilang
+   * (belum pernah sinkron / HP reboot) sehingga waktu hanya perkiraan dari jam HP.
+   */
+  timeSource: text('time_source', { enum: ['server', 'device'] }).notNull().default('device'),
   lat: real('lat'),
   lng: real('lng'),
   accuracyM: real('accuracy_m'),

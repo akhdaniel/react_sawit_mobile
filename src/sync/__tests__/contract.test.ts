@@ -47,6 +47,7 @@ const meta = {
   device_id: 'dev-1',
   created_trusted_at: '2026-10-18T01:00:00.000Z',
   device_time_at: '2026-10-18T01:00:03.000+07:00',
+  time_source: 'server',
   lat: 0.5,
   lng: 101.4,
   accuracy_m: 6,
