@@ -3,7 +3,7 @@
  * akses galeri. Hasil diproses: kompres ≤ 300 KB, simpan privat, hash SHA-256.
  */
 import { randomUUID } from 'expo-crypto';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,8 +45,16 @@ function CameraBody({ title, onCaptured, onCancel }: { title: string; onCaptured
   const [position, setPosition] = useState<'back' | 'front'>('back');
   const device = useCameraDevice(position);
   const photoOutput = usePhotoOutput({ targetResolution: CommonResolutions.FHD_4_3, qualityPrioritization: 'speed' });
-  const [busy, setBusy] = useState(false);
+  // Referensi array harus stabil: array baru tiap render membuat sesi kamera dikonfigurasi ulang.
+  const outputs = useMemo(() => [photoOutput], [photoOutput]);
+  /** Sesi kamera sudah berjalan (onStarted) — tombol rana baru aktif setelah ini. */
+  const [ready, setReady] = useState(false);
+  /** Sedang mengambil gambar: kamera WAJIB tetap aktif. */
+  const [capturing, setCapturing] = useState(false);
+  /** Sedang kompres/hash: kamera boleh dimatikan untuk hemat baterai. */
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busy = capturing || processing;
 
   if (!permission.hasPermission) {
     return (
@@ -69,23 +77,45 @@ function CameraBody({ title, onCaptured, onCancel }: { title: string; onCaptured
   }
 
   const shoot = async () => {
-    setBusy(true);
+    if (!ready || busy) return;
     setError(null);
+    let rawPath: string;
+    setCapturing(true);
     try {
-      const file = await photoOutput.capturePhotoToFile({}, {});
+      rawPath = (await photoOutput.capturePhotoToFile({}, {})).filePath;
+    } catch (e) {
+      setError(t('camera.failed', { message: e instanceof Error ? e.message : String(e) }));
+      return;
+    } finally {
+      setCapturing(false);
+    }
+    setProcessing(true);
+    try {
       const id = randomUUID();
-      const processed = await processPhoto(file.filePath, id, expoPhotoIO);
+      const processed = await processPhoto(rawPath, id, expoPhotoIO);
       onCaptured({ id, ...processed });
     } catch (e) {
       setError(t('camera.failed', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
-      setBusy(false);
+      setProcessing(false);
     }
   };
 
   return (
     <View style={styles.root}>
-      <Camera style={StyleSheet.absoluteFill} device={device} isActive={!busy} outputs={[photoOutput]} resizeMode="cover" />
+      <Camera
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive={!processing}
+        outputs={outputs}
+        resizeMode="cover"
+        onStarted={() => setReady(true)}
+        onStopped={() => setReady(false)}
+        onError={(e) => {
+          setReady(false);
+          setError(t('camera.failed', { message: e.message }));
+        }}
+      />
       <View style={[styles.top, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={onCancel} style={styles.roundBtn}>
           <Icon name="close" size={30} color={colors.onPrimary} />
@@ -96,7 +126,11 @@ function CameraBody({ title, onCaptured, onCancel }: { title: string; onCaptured
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('camera.flip')}
-          onPress={() => setPosition((p) => (p === 'back' ? 'front' : 'back'))}
+          disabled={busy}
+          onPress={() => {
+            setReady(false);
+            setPosition((p) => (p === 'back' ? 'front' : 'back'));
+          }}
           style={styles.roundBtn}
         >
           <Icon name="camera-flip" size={30} color={colors.onPrimary} />
@@ -108,13 +142,14 @@ function CameraBody({ title, onCaptured, onCancel }: { title: string; onCaptured
         </View>
       )}
       <View style={[styles.bottom, { paddingBottom: insets.bottom + spacing.lg }]}>
-        {busy && <Txt style={styles.processing}>{t('camera.processing')}</Txt>}
+        {(processing || !ready) && <Txt style={styles.processing}>{processing ? t('camera.processing') : t('camera.starting')}</Txt>}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('camera.shutter')}
-          disabled={busy}
+          accessibilityState={{ disabled: !ready || busy, busy }}
+          disabled={!ready || busy}
           onPress={() => void shoot()}
-          style={({ pressed }) => [styles.shutter, (pressed || busy) && { opacity: 0.6 }]}
+          style={({ pressed }) => [styles.shutter, (pressed || busy || !ready) && { opacity: 0.5 }]}
         >
           <View style={styles.shutterInner} />
         </Pressable>

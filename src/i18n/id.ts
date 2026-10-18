@@ -115,6 +115,7 @@ export const id = {
     shutter: 'Ambil foto',
     flip: 'Ganti kamera',
     processing: 'Memproses foto…',
+    starting: 'Menyalakan kamera…',
     failed: 'Foto gagal diambil: {message}',
   },
   attendance: {

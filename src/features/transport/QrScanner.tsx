@@ -1,5 +1,5 @@
 /** Pemindai QR (VisionCamera v5 + ML Kit barcode scanner). Memanggil onCode untuk setiap kode baru. */
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { Linking, Modal, Pressable, StyleSheet, Vibration, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { useBarcodeScannerOutput, type TargetBarcodeFormat } from 'react-native-vision-camera-barcode-scanner';
@@ -59,6 +59,8 @@ function ScannerBody({ title, footer, onCode, onClose }: { title: string; footer
     },
   });
 
+  const outputs = useMemo(() => [scanner], [scanner]);
+
   if (!permission.hasPermission) {
     return (
       <CenterMessage text={`${t('camera.permissionTitle')}\n${t('camera.permissionHint')}`}>
@@ -81,7 +83,7 @@ function ScannerBody({ title, footer, onCode, onClose }: { title: string; footer
 
   return (
     <View style={styles.root}>
-      <Camera style={StyleSheet.absoluteFill} device={device} isActive outputs={[scanner]} resizeMode="cover" />
+      <Camera style={StyleSheet.absoluteFill} device={device} isActive outputs={outputs} resizeMode="cover" />
       <View style={[styles.top, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={onClose} style={styles.btn}>
           <Icon name="close" size={30} color={colors.onPrimary} />
