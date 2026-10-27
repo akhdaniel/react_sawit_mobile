@@ -32,22 +32,24 @@ function capture() {
 }
 
 describe('createSyncApi.uploadPhoto', () => {
-  it('React Native: bagian file {uri,name,type} dikirim TANPA argumen nama file', async () => {
+  it('objek File ber-bytes() (expo-file-system) dikirim apa adanya, bukan {uri,name,type}', async () => {
     const { api, appended, restore } = capture();
+    const file = { name: `${photo.id}.jpg`, type: 'image/jpeg', bytes: async () => new Uint8Array([1, 2]) };
     try {
-      await createSyncApi(api).uploadPhoto(photo);
-      expect(appended[0]).toEqual(['file', { uri: photo.localUri, name: `${photo.id}.jpg`, type: 'image/jpeg' }]);
+      await createSyncApi(api, () => file).uploadPhoto(photo);
+      expect(appended[0]).toEqual(['file', file]);
+      expect(appended[0]![1]).not.toHaveProperty('uri');
       expect(appended.slice(1).map((a) => a[0])).toEqual(['mobile_uuid_photo', 'sha256', 'transaction_uuid']);
     } finally {
       restore();
     }
   });
 
-  it('PNG tanda tangan memakai image/png', async () => {
+  it('Blob diberi nama file sesuai ekstensi (png untuk tanda tangan)', async () => {
     const { api, appended, restore } = capture();
     try {
-      await createSyncApi(api).uploadPhoto({ ...photo, localUri: 'file:///x/sig.png' });
-      expect(appended[0]![1]).toMatchObject({ type: 'image/png', name: `${photo.id}.png` });
+      await createSyncApi(api, () => new Blob([new Uint8Array([1])], { type: 'image/png' })).uploadPhoto({ ...photo, localUri: 'file:///x/sig.png' });
+      expect(appended[0]![2]).toBe(`${photo.id}.png`);
     } finally {
       restore();
     }

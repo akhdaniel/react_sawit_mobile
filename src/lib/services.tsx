@@ -138,7 +138,8 @@ function createServices(db: AppDatabase): AppServices {
     };
   };
 
-  const syncApi = createSyncApi(api);
+  // File expo-file-system: punya name, type, dan bytes() — format yang diterima fetch Expo.
+  const syncApi = createSyncApi(api, (p) => new File(p.localUri));
   const sync = async () => {
     const store = useSync.getState();
     store.setRunning(true);

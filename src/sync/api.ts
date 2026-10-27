@@ -14,15 +14,24 @@ import {
 } from './contract';
 import type { SyncApi } from './engine';
 
-/** Bagian file untuk FormData — RN memakai {uri,name,type}, Node memakai Blob. */
-export type PhotoFilePart = (photo: PhotoRow) => Blob | { uri: string; name: string; type: string } | Promise<Blob>;
+/**
+ * Bagian file untuk FormData. fetch milik Expo (expo/winter, menggantikan fetch global di
+ * SDK 58) HANYA menerima string, Blob, atau objek ber-`bytes()` (mis. File expo-file-system);
+ * bentuk React Native `{uri, name, type}` ditolak dengan "Unsupported FormDataPart
+ * implementation". Di app dipakai File expo-file-system, di Node/test dipakai Blob.
+ */
+export interface BytesFilePart {
+  name: string;
+  type: string;
+  bytes(): Promise<Uint8Array>;
+}
+export type PhotoFilePart = (photo: PhotoRow) => Blob | BytesFilePart | Promise<Blob | BytesFilePart>;
 
-export const rnPhotoFilePart: PhotoFilePart = (p) =>
-  p.localUri.endsWith('.png')
-    ? { uri: p.localUri, name: `${p.id}.png`, type: 'image/png' }
-    : { uri: p.localUri, name: `${p.id}.jpg`, type: 'image/jpeg' };
+export function photoFileName(p: PhotoRow): string {
+  return p.localUri.endsWith('.png') ? `${p.id}.png` : `${p.id}.jpg`;
+}
 
-export function createSyncApi(api: ApiClient, filePart: PhotoFilePart = rnPhotoFilePart): SyncApi {
+export function createSyncApi(api: ApiClient, filePart: PhotoFilePart): SyncApi {
   return {
     getMaster: (since) =>
       api.request('GET', since ? `/master?since=${encodeURIComponent(since)}` : '/master', { schema: masterResponseSchema }),
@@ -37,13 +46,8 @@ export function createSyncApi(api: ApiClient, filePart: PhotoFilePart = rnPhotoF
     async uploadPhoto(p) {
       const form = new FormData();
       const part = await filePart(p);
-      if (typeof Blob !== 'undefined' && part instanceof Blob) {
-        form.append('file', part, p.localUri.endsWith('.png') ? `${p.id}.png` : `${p.id}.jpg`);
-      } else {
-        // React Native: objek {uri, name, type} WAJIB tanpa argumen nama file ketiga —
-        // argumen ketiga membuatnya diperlakukan sebagai Blob → "Unsupported FormDataPart".
-        form.append('file', part as unknown as Blob);
-      }
+      if (typeof Blob !== 'undefined' && part instanceof Blob) form.append('file', part, photoFileName(p));
+      else form.append('file', part as unknown as Blob); // nama & tipe diambil dari objek File
       form.append('mobile_uuid_photo', p.id);
       form.append('sha256', p.sha256);
       form.append('transaction_uuid', p.transactionUuid ?? '');
