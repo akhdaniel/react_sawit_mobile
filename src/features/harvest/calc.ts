@@ -75,3 +75,53 @@ export function premiEstimate(
 export function formatRupiah(n: number): string {
   return `Rp ${Math.round(n).toLocaleString('id-ID')}`;
 }
+
+export interface TphTicket extends BunchCounts {
+  tphId: number;
+  tphCode: string;
+  blockCode: string;
+  harvesterEmployeeId: number;
+  estKg: number;
+  transported: boolean;
+}
+
+export interface TphTotal {
+  tphId: number;
+  tphCode: string;
+  blockCode: string;
+  tickets: number;
+  harvesters: number;
+  ripe: number;
+  unripe: number;
+  rotten: number;
+  bunches: number;
+  looseFruitKg: number;
+  estKg: number;
+  /** Janjang di tiket yang belum masuk SPB (potensi restan di TPH). */
+  bunchesNotTransported: number;
+}
+
+/** Rekap tiket efektif per TPH, urut blok lalu kode TPH. */
+export function totalsByTph(tickets: readonly TphTicket[]): TphTotal[] {
+  const map = new Map<number, TphTotal & { harvesterIds: Set<number> }>();
+  for (const x of tickets) {
+    let r = map.get(x.tphId);
+    if (!r) {
+      r = { tphId: x.tphId, tphCode: x.tphCode, blockCode: x.blockCode, tickets: 0, harvesters: 0, ripe: 0, unripe: 0, rotten: 0, bunches: 0, looseFruitKg: 0, estKg: 0, bunchesNotTransported: 0, harvesterIds: new Set() };
+      map.set(x.tphId, r);
+    }
+    const b = totalBunches(x);
+    r.tickets += 1;
+    r.harvesterIds.add(x.harvesterEmployeeId);
+    r.ripe += x.ripe;
+    r.unripe += x.unripe;
+    r.rotten += x.rotten;
+    r.bunches += b;
+    r.looseFruitKg = round2(r.looseFruitKg + x.looseFruitKg);
+    r.estKg = round2(r.estKg + x.estKg);
+    if (!x.transported) r.bunchesNotTransported += b;
+  }
+  return [...map.values()]
+    .map(({ harvesterIds, ...r }) => ({ ...r, harvesters: harvesterIds.size }))
+    .sort((a, b) => a.blockCode.localeCompare(b.blockCode) || a.tphCode.localeCompare(b.tphCode, undefined, { numeric: true }));
+}

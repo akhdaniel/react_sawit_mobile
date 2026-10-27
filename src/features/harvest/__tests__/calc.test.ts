@@ -1,4 +1,4 @@
-import { EMPTY_COUNTS, estKg, formatRupiah, premiEstimate, totalBunches } from '@/features/harvest/calc';
+import { EMPTY_COUNTS, estKg, formatRupiah, premiEstimate, totalBunches, totalsByTph } from '@/features/harvest/calc';
 import { encodeTicketQr, parseTicketQr } from '@/features/harvest/qr';
 
 const penalties = new Map([['MENTAH', 5000], ['TGKPJG', 1000], ['BRDTGL', 2000]]);
@@ -55,5 +55,26 @@ describe('QR tiket', () => {
     expect(parseTicketQr('https://example.com')).toBeNull();
     expect(parseTicketQr('XSM1|HT|bukan-uuid|x|A|B|1|2|2026-10-18')).toBeNull();
     expect(parseTicketQr(encodeTicketQr(t).replace('|23|', '|-1|'))).toBeNull();
+  });
+});
+
+describe('rekap per TPH', () => {
+  const tk = (tphId: number, tphCode: string, harvester: number, ripe: number, transported: boolean, extra: Partial<typeof EMPTY_COUNTS> = {}) => ({
+    ...EMPTY_COUNTS, ...extra, ripe, tphId, tphCode, blockCode: 'A01', harvesterEmployeeId: harvester, estKg: estKg({ ...EMPTY_COUNTS, ...extra, ripe }, 18.5), transported,
+  });
+
+  it('menjumlahkan janjang, brondolan, kg, dan pemanen unik per TPH', () => {
+    const r = totalsByTph([
+      tk(2, 'TPH-10', 10, 20, true, { unripe: 1, looseFruitKg: 2.5 }),
+      tk(1, 'TPH-2', 10, 5, false),
+      tk(2, 'TPH-10', 11, 10, false, { looseFruitKg: 1.25 }),
+      tk(2, 'TPH-10', 10, 4, false),
+    ]);
+    expect(r.map((x) => x.tphCode)).toEqual(['TPH-2', 'TPH-10']);
+    expect(r[1]).toEqual({
+      tphId: 2, tphCode: 'TPH-10', blockCode: 'A01', tickets: 3, harvesters: 2,
+      ripe: 34, unripe: 1, rotten: 0, bunches: 35, looseFruitKg: 3.75, estKg: 647.5, bunchesNotTransported: 14,
+    });
+    expect(totalsByTph([])).toEqual([]);
   });
 });
