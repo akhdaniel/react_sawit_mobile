@@ -4,6 +4,8 @@ Aplikasi Android lapangan **offline-first** untuk perkebunan kelapa sawit (mando
 Semua data lapangan disimpan di SQLite terenkripsi di HP dan disinkronkan ke ERP Xerpium (Odoo 18)
 melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 
+**Panduan pengguna** (alur harian, langkah per peran, status data, masalah umum): [docs/PANDUAN_PENGGUNA.md](docs/PANDUAN_PENGGUNA.md).
+
 > **Status: Tahap 9 — NFC kartu pekerja (semua tahap selesai).**
 > - Tahap 1 (fondasi): Expo SDK 58, DB terenkripsi + migrasi, kontrak zod bersama, trigger append-only, mock server.
 > - Tahap 2: login online, PIN offline + kunci otomatis, menu per peran, trusted-time (modul native jam monotonic),
