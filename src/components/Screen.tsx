@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { t } from '@/i18n/id';
@@ -70,13 +70,16 @@ export function Screen({
         <PendingBadge />
       </View>
       <SecurityBanner />
-      <Body
-        style={styles.body}
-        contentContainerStyle={scroll ? [styles.content, { paddingBottom: insets.bottom + spacing.xl }] : undefined}
-        keyboardShouldPersistTaps="handled"
-      >
-        {children}
-      </Body>
+      {/* Android edge-to-edge: jendela tidak mengecil saat keyboard muncul, jadi body diberi padding. */}
+      <KeyboardAvoidingView style={styles.body} behavior="padding">
+        <Body
+          style={styles.body}
+          contentContainerStyle={scroll ? [styles.content, { paddingBottom: insets.bottom + spacing.xl }] : undefined}
+          keyboardShouldPersistTaps="handled"
+        >
+          {children}
+        </Body>
+      </KeyboardAvoidingView>
     </View>
   );
 }

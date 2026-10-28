@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { t } from '@/i18n/id';
@@ -13,26 +13,30 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.cancel')} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <Txt variant="large" style={{ flex: 1, fontWeight: '800' }}>
-            {title}
-          </Txt>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={onClose} style={styles.close}>
-            <Icon name="close" size={28} color={colors.text} />
-          </Pressable>
+      {/* Sheet terangkat di atas keyboard agar input di dalamnya tetap terlihat. */}
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.cancel')} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
+          <View style={styles.handle} />
+          <View style={styles.header}>
+            <Txt variant="large" style={{ flex: 1, fontWeight: '800' }}>
+              {title}
+            </Txt>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={onClose} style={styles.close}>
+              <Icon name="close" size={28} color={colors.text} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
         </View>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          {children}
-        </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: 'rgba(27, 22, 48, 0.45)' },
   sheet: {
     maxHeight: '88%',
