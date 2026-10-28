@@ -8,7 +8,7 @@
  */
 import { getPendingSummary } from '../db/repositories/pending';
 import { replaceInbox, type InboxItem } from '../db/repositories/approval';
-import { applyMasterChanges, getCursor, upsertWorkPlans } from '../db/repositories/master';
+import { applyMasterChanges, getCursor, resetMasterData, upsertWorkPlans } from '../db/repositories/master';
 import { getMeta, META_KEYS, setMeta } from '../db/repositories/meta';
 import {
   applyPushResults,
@@ -166,7 +166,15 @@ async function pollStatus(d: SyncDeps, r: SyncResult): Promise<void> {
 async function pullMaster(d: SyncDeps, r: SyncResult): Promise<void> {
   const maxPages = d.maxMasterPages ?? 100;
   for (let page = 0; page < maxPages; page++) {
-    const res = await d.api.getMaster(getCursor(d.db));
+    let res;
+    try {
+      res = await d.api.getMaster(getCursor(d.db));
+    } catch (err) {
+      // Cursor tidak dikenali server (mis. pindah server): buang master lama, tarik snapshot penuh.
+      if (!(err instanceof ApiError && err.code === 'invalid_cursor') || getCursor(d.db) == null) throw err;
+      resetMasterData(d.db);
+      res = await d.api.getMaster(null);
+    }
     const s = applyMasterChanges(d.db, res.changes, res.cursor);
     r.master.pages++;
     r.master.upserted += s.upserted;

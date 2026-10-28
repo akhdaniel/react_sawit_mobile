@@ -12,6 +12,7 @@ import JailMonkey from 'jail-monkey';
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
+import { resetMasterData } from '../db/repositories/master';
 import { deleteMeta, getMeta, META_KEYS, setMeta } from '../db/repositories/meta';
 import { getPendingSummary } from '../db/repositories/pending';
 import { useDb } from '../db/provider';
@@ -75,6 +76,8 @@ function createServices(db: AppDatabase): AppServices {
   const getBaseUrl = () => getMeta(db, META_KEYS.apiBaseUrl) ?? appConfig.apiBaseUrl;
   const setBaseUrl = (url: string) => {
     const parsed = apiBaseUrlSchema.parse(url);
+    // Pindah server: master (id, cursor) milik server lama tidak berlaku lagi.
+    if (parsed !== getBaseUrl()) resetMasterData(db);
     if (parsed === appConfig.apiBaseUrl) deleteMeta(db, META_KEYS.apiBaseUrl);
     else setMeta(db, META_KEYS.apiBaseUrl, parsed);
   };

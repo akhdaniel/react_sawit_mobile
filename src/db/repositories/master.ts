@@ -5,7 +5,7 @@ import { count, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { MasterChanges, MasterRecord } from '../../sync/contract';
-import { MASTER_ENTITIES, masterTables, syncCursor, type MasterEntity } from '../schema';
+import { approvalInbox, MASTER_ENTITIES, masterTables, syncCursor, type MasterEntity } from '../schema';
 import type { AppDatabase } from '../types';
 
 export const MASTER_CURSOR_KEY = 'master';
@@ -91,6 +91,19 @@ export function setCursor(db: AppDatabase, entity: string, cursor: string): void
     .values({ entity, cursor })
     .onConflictDoUpdate({ target: syncCursor.entity, set: { cursor } })
     .run();
+}
+
+/**
+ * Hapus semua master + cursor + cache approval (milik server). Dipakai saat pindah server
+ * atau cursor ditolak server, agar id dari server lama tidak tertinggal; sinkron berikutnya
+ * menarik snapshot penuh. Transaksi lokal tidak disentuh.
+ */
+export function resetMasterData(db: AppDatabase): void {
+  db.transaction((tx) => {
+    for (const entity of MASTER_ENTITIES) tx.delete(masterTables[entity]).run();
+    tx.delete(syncCursor).run();
+    tx.delete(approvalInbox).run();
+  });
 }
 
 export function countMaster(db: AppDatabase): Record<MasterEntity, number> {

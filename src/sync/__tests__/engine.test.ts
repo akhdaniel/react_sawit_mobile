@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 
 import { pendingInbox } from '@/db/repositories/approval';
-import { getCursor } from '@/db/repositories/master';
+import { applyMasterChanges, getCursor } from '@/db/repositories/master';
 import { getMeta } from '@/db/repositories/meta';
 import { attendance, block, harvestTicket, photo, workPlan } from '@/db/schema';
 import { AuthRequiredError } from '@/sync/api-client';
@@ -200,6 +200,24 @@ describe('runSync', () => {
     const r = await runSync(deps(db, api));
     expect(sinces).toEqual([null, 'v1', 'v2']);
     expect(r.master).toEqual({ pages: 3, upserted: 4, deleted: 0 });
+  });
+
+  it('cursor ditolak server (pindah server) → master lama dibuang, snapshot penuh ditarik', async () => {
+    const { db } = createTestDb();
+    applyMasterChanges(db, masterPage('mock-v9', [7, 8]).changes, 'mock-v9');
+    const sinces: (string | null)[] = [];
+    const { api } = fakeApi({
+      getMaster: async (since) => {
+        sinces.push(since);
+        if (since === 'mock-v9') throw new ApiError(400, 'invalid_cursor', 'cursor tidak valid');
+        return masterPage('odoo-1', [1]);
+      },
+    });
+    const r = await runSync(deps(db, api));
+    expect(sinces).toEqual(['mock-v9', null]);
+    expect(r.errors).toEqual([]);
+    expect(db.select().from(block).all().map((b) => b.id)).toEqual([1]);
+    expect(getCursor(db)).toBe('odoo-1');
   });
 
   it('foto: file hilang → failed; ditolak server (422) → failed; gangguan jaringan → pending', async () => {
