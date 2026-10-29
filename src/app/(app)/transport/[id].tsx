@@ -111,6 +111,7 @@ export default function SpbDetailScreen() {
           />
         ))}
       </Card>
+      <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/transport/entry/[id]', params: { id: row.mobileUuid } })} />
       <Button icon="printer" label={t('transport.print')} busy={printing} onPress={() => void print()} />
       <Button kind="outline" icon="truck-delivery" label={t('transport.langsir')} onPress={() => router.push({ pathname: '/transport/new', params: { parent: row.mobileUuid } })} />
     </Screen>

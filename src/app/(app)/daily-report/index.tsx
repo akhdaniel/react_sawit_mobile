@@ -40,6 +40,7 @@ export default function DailyReportListScreen() {
                 label={gangs.get(r.gangId) ?? `#${r.gangId}`}
                 description={`${t('report.tickets', { count: s.harvest?.tickets ?? 0, bunches: s.harvest?.bunches ?? 0, kg: Math.round(s.harvest?.estKg ?? 0) })} · ${t(`status.${r.status}`)}`}
                 last={i === rows.length - 1}
+                onPress={() => router.push({ pathname: '/daily-report/[id]', params: { id: r.mobileUuid } })}
               />
             );
           })}

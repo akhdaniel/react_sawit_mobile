@@ -15,6 +15,14 @@ export const id = {
     yes: 'Ya',
     no: 'Tidak',
   },
+  entry: {
+    readOnly: 'Data tersimpan dan tidak bisa diubah. Perbaikan dibuat sebagai koreksi.',
+    savedAt: 'Disimpan {time}',
+    viewForm: 'Lihat form entry',
+    photos: 'Foto bukti',
+    noPhoto: 'Tanpa foto',
+    unknown: 'Data tidak ditemukan di HP ini.',
+  },
   boot: {
     openingDb: 'Membuka database terenkripsi…',
     migrating: 'Menyiapkan database…',

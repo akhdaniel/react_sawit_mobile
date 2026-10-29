@@ -102,6 +102,7 @@ export default function HarvestTicketScreen() {
         <ListRow icon="grain" tone="accent" label={t('harvest.looseFruit')} value={String(tk.looseFruitKg)} last={!originalNo} />
         {originalNo && <ListRow icon="history" tone="danger" label={t('harvest.correctionOf', { no: originalNo })} last />}
       </Card>
+      <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/harvest/entry/[id]', params: { id: tk.mobileUuid } })} />
       <Button kind="outline" icon="printer" label={t('harvest.print')} busy={printing} onPress={() => void print()} />
       {!corrected && (
         <Button

@@ -40,6 +40,7 @@ export default function AssignmentListScreen() {
               label={`${names.acts.get(r.activityId) ?? `#${r.activityId}`} · ${t('assignment.block')} ${names.blks.get(r.blockId) ?? r.blockId}`}
               description={`${t('assignment.workersCount', { count: r.employeeIds.length })} · ${t(`status.${r.status}`)}${r.unplannedReason ? ` · ${r.unplannedReason}` : ''}`}
               last={i === rows.length - 1}
+              onPress={() => router.push({ pathname: '/assignment/[id]', params: { id: r.mobileUuid } })}
             />
           ))}
         </Card>

@@ -14,6 +14,7 @@ export function NumberStepper({
   decimal = false,
   large = false,
   autoFocus,
+  readOnly = false,
 }: {
   label: string;
   value: number;
@@ -22,15 +23,19 @@ export function NumberStepper({
   decimal?: boolean;
   large?: boolean;
   autoFocus?: boolean;
+  /** Tampilan data tersimpan: tanpa tombol − / + dan tidak bisa diketik. */
+  readOnly?: boolean;
 }) {
   const set = (n: number) => onChange(Math.max(0, decimal ? Math.round(n * 10) / 10 : Math.round(n)));
   return (
     <View style={styles.wrap}>
       <Txt style={[styles.label, large && { fontSize: typography.large }]}>{label}</Txt>
       <View style={styles.row}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${label} kurang`} onPress={() => set(value - step)} style={styles.btn}>
-          <Icon name="minus" size={30} color={colors.primary} />
-        </Pressable>
+        {!readOnly && (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${label} kurang`} onPress={() => set(value - step)} style={styles.btn}>
+            <Icon name="minus" size={30} color={colors.primary} />
+          </Pressable>
+        )}
         <TextInput
           accessibilityLabel={label}
           value={value === 0 ? '' : String(value)}
@@ -44,11 +49,14 @@ export function NumberStepper({
           keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
           autoFocus={autoFocus}
           selectTextOnFocus
-          style={[styles.input, large && styles.inputLarge]}
+          editable={!readOnly}
+          style={[styles.input, large && styles.inputLarge, readOnly && styles.inputReadOnly]}
         />
-        <Pressable accessibilityRole="button" accessibilityLabel={`${label} tambah`} onPress={() => set(value + step)} style={styles.btn}>
-          <Icon name="plus" size={30} color={colors.primary} />
-        </Pressable>
+        {!readOnly && (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${label} tambah`} onPress={() => set(value + step)} style={styles.btn}>
+            <Icon name="plus" size={30} color={colors.primary} />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -79,4 +87,5 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   inputLarge: { fontSize: 36, minHeight: 80 },
+  inputReadOnly: { backgroundColor: colors.background },
 });

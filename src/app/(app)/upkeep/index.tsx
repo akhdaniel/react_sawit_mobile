@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { Card, SectionTitle } from '@/components/Card';
@@ -29,7 +29,12 @@ export default function UpkeepListScreen() {
       ) : (
         <Card>
           {rows.map((r, i) => (
-            <View key={r.mobileUuid} style={[styles.row, i < rows.length - 1 && styles.divider]}>
+            <Pressable
+              key={r.mobileUuid}
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/upkeep/[id]', params: { id: r.mobileUuid } })}
+              style={({ pressed }) => [styles.row, i < rows.length - 1 && styles.divider, pressed && { backgroundColor: colors.surfaceMuted }]}
+            >
               <View style={styles.icon}>
                 <Icon name="sprout" size={24} color={colors.primary} />
               </View>
@@ -47,7 +52,8 @@ export default function UpkeepListScreen() {
                   </View>
                 ))}
               </View>
-            </View>
+              <Icon name="chevron-right" size={24} color={colors.textMuted} />
+            </Pressable>
           ))}
         </Card>
       )}
