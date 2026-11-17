@@ -15,8 +15,10 @@ import { listRejected } from '@/db/repositories/outbox';
 import { getPendingSummary, PENDING_WATCH_TABLES } from '@/db/repositories/pending';
 import { TRANSACTION_TYPES } from '@/db/schema';
 import { SessionError } from '@/features/auth/session-service';
+import { reasonLabel } from '@/features/common/reason';
 import { ServerSheet } from '@/features/server/ServerSheet';
 import { needsReauth, useSync } from '@/features/sync/sync-store';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, radius, spacing } from '@/theme';
@@ -26,15 +28,19 @@ const TYPE_LABEL: Record<string, string> = {
   assignment: t('menu.assignment'),
   harvest_ticket: t('menu.harvest'),
   spb: t('menu.transport'),
+  fertilization_ticket: t('menu.fertilization'),
+  maintenance_ticket: t('menu.upkeep'),
   upkeep: t('menu.upkeep'),
   material_usage: t('sync.material'),
   daily_report: t('menu.dailyReport'),
   approval_decision: t('menu.approval'),
+  stage_confirm: t('sync.stageConfirm'),
 };
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('id-ID') : t('sync.never'));
 
 export default function SyncScreen() {
+  const refresh = useRefresh();
   const services = useServices();
   const net = useNetInfo();
   const { running, step, lastResult } = useSync();
@@ -70,7 +76,7 @@ export default function SyncScreen() {
   };
 
   return (
-    <Screen title={t('sync.title')} back>
+    <Screen refresh={refresh} title={t('sync.title')} back>
       <Card padded>
         <View style={[styles.status, { backgroundColor: online ? colors.successSoft : colors.warningSoft }]}>
           <Icon name={online ? 'wifi' : 'wifi-off'} size={26} color={online ? colors.success : colors.text} />
@@ -173,7 +179,7 @@ export default function SyncScreen() {
                 icon="close-octagon"
                 tone="danger"
                 label={`${TYPE_LABEL[r.type] ?? r.type} · ${fmt(r.createdTrustedAt)}`}
-                description={r.reason}
+                description={reasonLabel(r.reason)}
                 last={i === rejected.length - 1}
               />
             ))}

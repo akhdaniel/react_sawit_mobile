@@ -29,7 +29,7 @@ export default function NewDailyReportScreen() {
   const pad = useRef<SignaturePadRef>(null);
   const [busy, setBusy] = useState(false);
 
-  const summary = useTableQuery(['attendance', 'assignment', 'harvest_ticket', 'spb_line', 'upkeep', 'material_usage', String(selected?.id)], () =>
+  const summary = useTableQuery(['attendance', 'assignment', 'harvest_ticket', 'spb_line', 'upkeep', 'material_usage', 'maintenance_ticket', String(selected?.id)], () =>
     selected ? buildDailySummary(db, date, selected.id) : null,
   );
   const existing = useTableQuery(['daily_report', String(selected?.id)], () => (selected ? latestReport(db, date, selected.id) : null));

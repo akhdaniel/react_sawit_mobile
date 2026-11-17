@@ -1,7 +1,19 @@
-import { EMPTY_COUNTS, estKg, formatRupiah, premiEstimate, totalBunches, totalsByTph } from '@/features/harvest/calc';
+import { EMPTY_COUNTS, estKg, findRate, formatRupiah, premiEstimate, totalBunches, totalsByTph, type HarvestRate } from '@/features/harvest/calc';
 import { encodeTicketQr, parseTicketQr } from '@/features/harvest/qr';
 
-const penalties = new Map([['MENTAH', 5000], ['TGKPJG', 1000], ['BRDTGL', 2000]]);
+const rate = (over: Partial<HarvestRate> = {}): HarvestRate => ({
+  id: 1,
+  estateId: null,
+  employeeType: null,
+  dateFrom: '2026-01-01',
+  dateTo: null,
+  lines: [
+    { grade: 'ripe', line_type: 'premium', basis: 'per_bunch', scope: 'all', amount: 2500 },
+    { grade: 'unripe', line_type: 'penalty', basis: 'per_bunch', scope: 'all', amount: 5000 },
+    { grade: 'long_stalk', line_type: 'penalty', basis: 'per_bunch', scope: 'all', amount: 1000 },
+  ],
+  ...over,
+});
 
 describe('kalkulasi panen', () => {
   it('est_kg = (matang + mentah + busuk) × BJR', () => {
@@ -11,24 +23,34 @@ describe('kalkulasi panen', () => {
     expect(estKg(c, 0)).toBe(0);
   });
 
-  it('premi per janjang hanya untuk matang, dikurangi denda mentah & tangkai panjang', () => {
-    const r = premiEstimate({ ...EMPTY_COUNTS, ripe: 40, unripe: 2, longStalk: 3 }, { wageBasis: 'per_bunch', rate: 2500 }, penalties);
-    expect(r).toEqual({
-      basis: 'per_bunch',
-      gross: 100000,
-      penalty: 13000,
-      net: 87000,
-      penalties: [
-        { code: 'MENTAH', count: 2, amount: 10000 },
-        { code: 'TGKPJG', count: 3, amount: 3000 },
-      ],
-    });
+  it('premi per janjang dari tarif ERP: matang dibayar, mentah & tangkai panjang didenda', () => {
+    const r = premiEstimate({ ...EMPTY_COUNTS, ripe: 40, unripe: 2, longStalk: 3 }, 18.5, rate(), null);
+    expect(r).toMatchObject({ hasRate: true, premium: 100000, penalty: 13000, net: 87000 });
+    expect(r.lines.map((l) => [l.grade, l.unit, l.quantity, l.subtotal])).toEqual([
+      ['ripe', 'bunch', 40, 100000],
+      ['unripe', 'bunch', 2, -10000],
+      ['long_stalk', 'bunch', 3, -3000],
+    ]);
   });
 
-  it('upah harian tidak bergantung jumlah; per_ha/per_tree = 0; tanpa kegiatan = 0', () => {
-    expect(premiEstimate({ ...EMPTY_COUNTS, ripe: 5 }, { wageBasis: 'daily', rate: 120000 }, penalties).gross).toBe(120000);
-    expect(premiEstimate({ ...EMPTY_COUNTS, ripe: 5 }, { wageBasis: 'per_ha', rate: 75000 }, penalties).gross).toBe(0);
-    expect(premiEstimate({ ...EMPTY_COUNTS, ripe: 5 }, null, new Map()).net).toBe(0);
+  it('tanpa tarif: premi 0 dan ditandai', () => {
+    expect(premiEstimate({ ...EMPTY_COUNTS, ripe: 5 }, 18.5, null, null)).toEqual({ hasRate: false, premium: 0, penalty: 0, net: 0, lines: [] });
+  });
+
+  it('pemilihan tarif sama dengan ERP: estate & tipe karyawan spesifik, lalu tanggal mulai terbaru, dalam masa berlaku', () => {
+    const rates = [
+      rate({ id: 1 }),
+      rate({ id: 2, estateId: 1 }),
+      rate({ id: 3, estateId: 1, employeeType: 'daily_worker' }),
+      rate({ id: 4, estateId: 1, employeeType: 'daily_worker', dateFrom: '2026-06-01', dateTo: '2026-06-30' }),
+      rate({ id: 5, estateId: 2, employeeType: 'daily_worker' }),
+    ];
+    const pick = (workDate: string, estateId: number | null, employeeType: string | null) => findRate(rates, { workDate, estateId, employeeType })?.id;
+    expect(pick('2026-06-15', 1, 'daily_worker')).toBe(4);
+    expect(pick('2026-07-01', 1, 'daily_worker')).toBe(3);
+    expect(pick('2026-07-01', 1, 'employee')).toBe(2);
+    expect(pick('2026-07-01', 9, null)).toBe(1);
+    expect(pick('2025-12-31', 1, 'daily_worker')).toBeUndefined();
   });
 
   it('format rupiah', () => {
@@ -45,6 +67,7 @@ describe('QR tiket', () => {
     bunches: 23,
     estKg: 425.5,
     workDate: '2026-10-18',
+    looseFruitKg: 3.5,
   };
   it('encode → parse bolak-balik', () => {
     const raw = encodeTicketQr(t);
@@ -55,6 +78,10 @@ describe('QR tiket', () => {
     expect(parseTicketQr('https://example.com')).toBeNull();
     expect(parseTicketQr('XSM1|HT|bukan-uuid|x|A|B|1|2|2026-10-18')).toBeNull();
     expect(parseTicketQr(encodeTicketQr(t).replace('|23|', '|-1|'))).toBeNull();
+  });
+  it('QR versi lama (tanpa brondolan) tetap terbaca, brondolan tidak diketahui', () => {
+    const old = encodeTicketQr(t).replace(/\|3\.5$/, '');
+    expect(parseTicketQr(old)).toEqual({ ...t, looseFruitKg: null });
   });
 });
 

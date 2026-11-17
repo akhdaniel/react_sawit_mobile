@@ -11,6 +11,7 @@ import {
   markSent,
 } from '@/db/repositories/outbox';
 import { attendance, harvestTicket, photo, spb, spbLine } from '@/db/schema';
+import { getDocument } from '@/db/repositories/documents';
 import { createTestDb } from '@/test/db';
 import { attendanceRow, harvestTicketRow, photoRow, txCommon, uuid } from '@/test/fixtures';
 
@@ -50,6 +51,45 @@ describe('outbox', () => {
     db.insert(spbLine).values({ spbUuid, harvestTicketUuid: t1 }).run();
     const { entries } = collectOutbox(db, 10, '0.3.0');
     expect(entries[0]!.item.payload).toMatchObject({ harvest_ticket_uuids: [t1] });
+    // Baris tanpa muatan (versi lama): muatan tidak dikirim, ERP memuat tiket utuh.
+    expect(entries[0]!.item.payload).not.toHaveProperty('lines');
+  });
+
+  it('SPB membawa muatan per tiket, PKS, dan sopir karyawan (struktur SPB ERP)', () => {
+    const { db } = createTestDb();
+    const spbUuid = uuid();
+    const [t1, t2] = [uuid(), uuid()];
+    db.insert(spb)
+      .values({
+        ...txCommon({ mobileUuid: spbUuid }),
+        workDate: '2026-10-18',
+        spbNo: 'AFD01-261018-AB12-0002',
+        vehicleId: 1,
+        driverName: 'Bambang',
+        driverEmployeeId: 30,
+        pksId: 3,
+        destination: 'internal_mill',
+        totalBunch: 25,
+        estKg: 462.5,
+        photoIds: [uuid(), uuid()],
+        status: 'queued',
+      })
+      .run();
+    db.insert(spbLine)
+      .values([
+        { spbUuid, harvestTicketUuid: t1, bunchCount: 15, looseFruitKg: 0 },
+        { spbUuid, harvestTicketUuid: t2, bunchCount: 10, looseFruitKg: 2.5 },
+      ])
+      .run();
+    const { entries } = collectOutbox(db, 10, '0.3.0');
+    expect(entries[0]!.item.payload).toMatchObject({
+      pks_id: 3,
+      driver_employee_id: 30,
+      lines: expect.arrayContaining([
+        { ticket_uuid: t1, bunch_count: 15, loose_fruit_kg: 0 },
+        { ticket_uuid: t2, bunch_count: 10, loose_fruit_kg: 2.5 },
+      ]),
+    });
   });
 
   it('urutan dependensi: absen sebelum tiket panen; termasuk status sent (kirim ulang)', () => {
@@ -102,6 +142,21 @@ describe('outbox', () => {
     ]);
     expect(s).toEqual({ posted: 1, rejected: 1 });
     expect(listAwaitingPost(db, 10)).toHaveLength(0);
+  });
+
+  it('dokumen ERP disimpan; tiket posted dipantau sampai status ERP akhir', () => {
+    const { db } = createTestDb();
+    const a = harvestTicketRow({ status: 'accepted', workDate: '2026-10-18' });
+    db.insert(harvestTicket).values(a).run();
+    const doc = (state: string) => ({ name: 'BETA-261018-ODOO-0001', state, state_label: state, net_kg: null });
+    applyStatusResults(db, listAwaitingPost(db, 10), [{ mobile_uuid: a.mobileUuid, status: 'posted', document: doc('draft') }], '2026-10-18T10:00:00Z');
+    expect(getDocument(db, a.mobileUuid)).toMatchObject({ name: 'BETA-261018-ODOO-0001', state: 'draft' });
+    // Posted: tetap ditanyakan selama status ERP belum akhir dan masih dalam jendela pantau.
+    expect(listAwaitingPost(db, 10)).toHaveLength(0);
+    expect(listAwaitingPost(db, 10, '2026-10-10')).toHaveLength(1);
+    expect(listAwaitingPost(db, 10, '2026-10-19')).toHaveLength(0);
+    applyStatusResults(db, listAwaitingPost(db, 10, '2026-10-10'), [{ mobile_uuid: a.mobileUuid, status: 'posted', document: doc('closed') }]);
+    expect(listAwaitingPost(db, 10, '2026-10-10')).toHaveLength(0);
   });
 
   it('listRejected menyembunyikan transaksi yang sudah dikoreksi', () => {

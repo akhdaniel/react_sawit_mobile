@@ -11,12 +11,14 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { isAfterRestanCutoff, potentialRestan, spbsFor } from '@/db/repositories/transport';
 import { vehicle } from '@/db/schema';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { appConfig } from '@/lib/config';
 import { useServices } from '@/lib/services';
 import { colors, radius, spacing } from '@/theme';
 
 export default function TransportListScreen() {
+  const refresh = useRefresh();
   const { db, clock } = useServices();
   const workDate = clock.workDate();
   const spbs = useTableQuery(['spb'], () => spbsFor(db, workDate));
@@ -27,7 +29,7 @@ export default function TransportListScreen() {
   const late = isAfterRestanCutoff(clock.now().ms, clock.utcOffsetMinutes, appConfig.restanCutoff);
 
   return (
-    <Screen title={t('transport.title')} back>
+    <Screen refresh={refresh} title={t('transport.title')} back>
       <Button icon="truck-plus" label={t('transport.new')} onPress={() => router.push('/transport/new')} />
       {restan.length > 0 && (
         <View style={[styles.notice, { backgroundColor: late ? colors.dangerSoft : colors.warningSoft, borderLeftColor: late ? colors.danger : colors.warning }]}>

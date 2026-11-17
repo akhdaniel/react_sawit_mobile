@@ -21,12 +21,23 @@ melalui REST API `/xsm/v1` saat ada Wi-Fi kantor.
 > - Tahap 7: perawatan + pemakaian material dengan deteksi over-dose ke antrean approval.
 > - Tahap 8: inbox approval offline untuk asisten, keputusan, laporan harian bertanda tangan.
 > - Tahap 9: kartu NFC pekerja untuk absensi dan memilih pemanen.
+> - Struktur ERP: tiket panen & SPB mengikuti struktur ERP (acuan). Master sub blok, tarif panen, PKS, sopir;
+>   estimasi premi memakai tarif panen ERP (rumus sama dengan tiket ERP); SPB dengan PKS, sopir karyawan,
+>   muatan per tiket, titik muat langsir; status dokumen ERP (nomor, status, netto) tampil di HP.
+>   Butuh modul `xerpium_sawit_mobile` ≥ 18.0.1.3.0. QR tiket kini memuat brondolan: semua HP perlu diperbarui
+>   bersamaan (QR lama tetap terbaca, tetapi aplikasi lama tidak bisa membaca QR baru).
+> - Tiket pemupukan (struktur tiket pemupukan ERP): satu pekerja per tiket, kemandoran rawat, batas dosis dan
+>   estimasi upah dari tarif pemupukan ERP, status dokumen ERP. Pupuk tidak lagi muncul sebagai material
+>   perawatan. Butuh modul `xerpium_sawit_mobile` ≥ 18.0.1.4.0.
+> - Tiket perawatan (struktur tiket perawatan ERP) menggantikan form perawatan lama: satu pekerja per tiket,
+>   jenis perawatan ERP dengan satuan Ha/pokok/HK, material sebagai baris tiket dengan dosis standar per Ha,
+>   estimasi upah dari tarif perawatan ERP. Butuh modul `xerpium_sawit_mobile` ≥ 18.0.1.5.0.
 
 ## Prasyarat
 
 | Kebutuhan | Versi | Catatan |
 |---|---|---|
-| Node.js | 22.x | |
+| Node.js | 22.x | `better-sqlite3` (test) butuh Node ≥ 22 |
 | JDK | **17** | Di mesin ini: JetBrains JBR 17 (`~/Library/Java/JavaVirtualMachines/jbr-17.0.14`) |
 | Android SDK | API 36 + build-tools | `~/Library/Android/sdk` |
 | HP Android / emulator | Android 8.0+ (minSdk 26) | |
@@ -272,9 +283,25 @@ dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
 - Encoder-nya murni dan diuji unit: 32 kolom, ASCII aman, QR `GS ( k`, cut.
 - Data dikirim per potongan sesuai MTU.
 
-## Perawatan & material (tahap 7)
+## Tiket perawatan
 
-`app/(app)/upkeep/` · `db/repositories/upkeep.ts` · `features/upkeep/calc.ts`
+`app/(app)/maintenance/` · `db/repositories/maintenance.ts` · `features/maintenance/calc.ts`
+
+Mengikuti tiket perawatan ERP (`xerpium.maintenance.ticket`), menu **Perawatan** untuk mandor rawat:
+- Satu tiket = satu pekerja hadir dari kemandoran rawat, satu blok + sub blok, satu jenis perawatan ERP.
+- Hasil kerja sesuai satuan jenis perawatan (`WORK_TYPE_UNITS`): Ha, pokok, atau HK; wajib > 0.
+  Luas ≤ luas blok, pokok ≤ `block.tree_count`.
+- Material = baris tiket (`materials`, tidak boleh dobel), produk non-pupuk. Batas = `dosage_per_ha × luas`;
+  material berdosis butuh luas, dan melebihi batas tidak bisa disimpan (ERP tidak bisa memverifikasinya).
+- Estimasi upah dari `harvest_rate.maintenance_lines` (baris kelas medan sub blok didahulukan) × hasil kerja.
+- Nomor tiket dibuat ERP saat posting; koreksi = tiket baru (`correction_of`).
+
+Migrasi `0013` (tabel + kolom master), `0014` (trigger append-only), `0015` (tarik ulang master penuh).
+
+## Perawatan & material versi lama (tahap 7)
+
+Form perawatan lama sudah dihapus dari aplikasi. Tabel `upkeep` / `material_usage` dan repository-nya tetap ada
+agar transaksi lama yang belum terkirim masih bisa sinkron. Aturan versi lama:
 
 **Input perawatan:**
 - Pilih kegiatan upkeep dan blok, lalu pekerja hadir.
@@ -288,6 +315,23 @@ dengan flag `rooted`/`mocked`, dan banner merah/kuning tampil di setiap layar.
 **Pengiriman:** upkeep dan setiap material adalah transaksi terpisah. Material selalu dikirim sesudah upkeep-nya.
 
 **Server** menghitung ulang dosis, dan menolak material yang melebihi dosis tetapi tidak ditandai over-dose.
+
+## Tiket pemupukan
+
+`app/(app)/fertilization/` · `db/repositories/fertilization.ts` · `features/fertilization/calc.ts`
+
+Mengikuti tiket pemupukan ERP (`xerpium.fertilization.ticket`), menu untuk peran mandor rawat:
+- Satu tiket = satu pekerja hadir dari **kemandoran rawat** (`gang.gang_type`), satu blok + sub blok, satu pupuk.
+- Pupuk = produk `is_fertilizer` yang punya `fertilizer_group_id`. Metode manual/mekanis/drone, ronde, cuaca, catatan.
+- **Batas pupuk** = `dosage_kg_per_tree × tree_count`. Di atas batas, tiket tidak bisa disimpan (ERP tidak bisa
+  memverifikasinya). Pokok dipupuk tidak boleh melebihi `block.tree_count`.
+- **Estimasi upah** dari `harvest_rate.fertilization_lines`: baris paling spesifik (kelompok pupuk → metode →
+  kelas medan sub blok), × kg pupuk (`per_kg`) atau × pokok (`per_tree`).
+- "Simpan & pekerja berikutnya" mempertahankan blok, pupuk, dan metode.
+- Nomor tiket dibuat ERP saat posting; nomor dan status ERP tampil di detail tiket. Koreksi = tiket baru
+  (`correction_of`), ERP membatalkan tiket inti yang dikoreksi.
+
+Migrasi `0010` (tabel + kolom master), `0011` (trigger append-only), `0012` (tarik ulang master penuh).
 
 ## Approval & laporan harian (tahap 8)
 

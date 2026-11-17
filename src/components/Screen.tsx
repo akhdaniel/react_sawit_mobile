@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { t } from '@/i18n/id';
@@ -23,6 +23,7 @@ export function Screen({
   hero,
   children,
   scroll = true,
+  refresh,
 }: {
   title: string;
   subtitle?: string;
@@ -33,6 +34,8 @@ export function Screen({
   hero?: ReactNode;
   children: ReactNode;
   scroll?: boolean;
+  /** Tarik layar ke bawah untuk sinkron (dari `useRefresh`); hanya untuk layar daftar/detail, bukan form. */
+  refresh?: { refreshing: boolean; onRefresh: () => void };
 }) {
   const insets = useSafeAreaInsets();
   const Body = scroll ? ScrollView : View;
@@ -76,6 +79,16 @@ export function Screen({
           style={styles.body}
           contentContainerStyle={scroll ? [styles.content, { paddingBottom: insets.bottom + spacing.xl }] : undefined}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            scroll && refresh ? (
+              <RefreshControl
+                refreshing={refresh.refreshing}
+                onRefresh={refresh.onRefresh}
+                colors={[colors.primary]}
+                tintColor={colors.primary}
+              />
+            ) : undefined
+          }
         >
           {children}
         </Body>

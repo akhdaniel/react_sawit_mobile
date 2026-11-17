@@ -16,14 +16,16 @@ import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { attendanceByEmployee, isPresent } from '@/db/repositories/attendance';
-import { findDuplicateTicket } from '@/db/repositories/harvest';
-import { activity, assignment, block, employee, harvestTicket, penaltyRule, tph, workPlan } from '@/db/schema';
+import { findDuplicateTicket, subBloksOf, ticketPremi } from '@/db/repositories/harvest';
+import { activity, assignment, block, employee, harvestTicket, tph, workPlan } from '@/db/schema';
 import { useGangSelection } from '@/features/attendance/useGang';
 import { useSession } from '@/features/auth/session-store';
 import { CameraCapture, type CapturedPhoto } from '@/features/camera/CameraCapture';
 import { NfcCardButton } from '@/features/nfc/NfcCardButton';
 import { saveHarvestTicket } from '@/features/harvest/actions';
-import { EMPTY_COUNTS, estKg, formatRupiah, premiEstimate, type BunchCounts } from '@/features/harvest/calc';
+import { EMPTY_COUNTS, formatRupiah, type BunchCounts } from '@/features/harvest/calc';
+import { PremiBreakdown } from '@/features/harvest/PremiBreakdown';
+import { continueTicket } from '@/features/harvest/stage';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, radius, spacing } from '@/theme';
@@ -34,6 +36,7 @@ export default function NewHarvestTicketScreen() {
   const workDate = clock.workDate();
   const { correctionOf } = useLocalSearchParams<{ correctionOf?: string }>();
   const afdelingIds = useSession((s) => s.user?.afdeling_ids ?? []);
+  const verifier = useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_panen' || r === 'kerani_panen'));
   const { gangs, selected, select } = useGangSelection();
 
   const original = useMemo(
@@ -69,6 +72,10 @@ export default function NewHarvestTicketScreen() {
   const tphs = useTableQuery(['tph', String(effBlockId)], () =>
     effBlockId ? db.select().from(tph).where(eq(tph.blockId, effBlockId)).orderBy(asc(tph.code)).all() : [],
   );
+  // Sub blok (struktur tiket panen ERP): dipilih otomatis bila blok hanya punya satu.
+  const subBloks = useTableQuery(['sub_blok', String(effBlockId)], () => (effBlockId ? subBloksOf(db, effBlockId) : []));
+  const [subBlokId, setSubBlokId] = useState<number | null>(original?.subBlokId ?? null);
+  const effSubBlokId = subBloks.some((x) => x.id === subBlokId) ? subBlokId : subBloks.length === 1 ? subBloks[0]!.id : null;
 
   const day = useTableQuery(['attendance'], () => attendanceByEmployee(db, workDate));
   const harvesters = useMemo(() => {
@@ -91,16 +98,21 @@ export default function NewHarvestTicketScreen() {
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const harvestActivity = useTableQuery(['activity'], () => db.select().from(activity).where(eq(activity.kind, 'harvest')).orderBy(asc(activity.id)).get() ?? null);
-  const penalties = useTableQuery(['penalty_rule'], () => new Map(db.select().from(penaltyRule).all().map((p) => [p.code, p.amount])));
-  const kg = estKg(counts, theBlock?.bjrKg ?? 0);
-  const premi = premiEstimate(counts, harvestActivity, penalties);
+  // Versi master: berubah saat tarif/sub blok/karyawan/blok tersinkron, memicu hitung ulang premi.
+  const masterRev = useTableQuery(['harvest_rate', 'sub_blok', 'employee', 'block'], () => ({}));
+  const { estKg: kg, premi } = useMemo(
+    () => ticketPremi(db, { workDate, blockId: effBlockId, subBlokId: effSubBlokId, harvesterEmployeeId: harvesterId }, counts),
+    // masterRev sengaja jadi dependency: hitung ulang saat master tersinkron.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [db, workDate, effBlockId, effSubBlokId, harvesterId, counts, masterRev],
+  );
   const duplicate =
-    !original && tphId && harvesterId ? findDuplicateTicket(db, workDate, tphId, harvesterId) : null;
+    !original && tphId && harvesterId ? findDuplicateTicket(db, workDate, tphId, harvesterId, effSubBlokId) : null;
 
   const set = (k: keyof BunchCounts) => (n: number) => setCounts((c) => ({ ...c, [k]: n }));
 
-  const save = async () => {
+  /** `andContinue`: Simpan & Lanjutkan — tiket langsung dilanjutkan ke tahap berikutnya saat sinkron. */
+  const save = async (andContinue = false) => {
     if (!effBlockId || !tphId || !harvesterId) return;
     setBusy(true);
     try {
@@ -108,7 +120,7 @@ export default function NewHarvestTicketScreen() {
       const r = saveHarvestTicket(
         db,
         ctx,
-        { workDate, blockId: effBlockId, tphId, harvesterEmployeeId: harvesterId, ...counts, correctionOf: original?.mobileUuid ?? null },
+        { workDate, blockId: effBlockId, subBlokId: effSubBlokId, tphId, harvesterEmployeeId: harvesterId, ...counts, correctionOf: original?.mobileUuid ?? null },
         services.device.deviceShort,
         photo ?? undefined,
       );
@@ -116,6 +128,7 @@ export default function NewHarvestTicketScreen() {
         Alert.alert(t('harvest.title'), r.issues.map((i) => `• ${t(`harvest.error.${i}`)}`).join('\n'));
         return;
       }
+      if (andContinue) continueTicket(db, ctx, r.ticket.mobileUuid);
       router.replace({ pathname: '/harvest/[id]', params: { id: r.ticket.mobileUuid, fresh: '1' } });
     } finally {
       setBusy(false);
@@ -152,6 +165,7 @@ export default function NewHarvestTicketScreen() {
             onPress={() => {
               setBlockId(b.id);
               setTphId(null);
+              setSubBlokId(null);
             }}
           />
         ))}
@@ -163,6 +177,17 @@ export default function NewHarvestTicketScreen() {
           <Chip key={x.id} label={x.code} selected={x.id === tphId} onPress={() => setTphId(x.id)} />
         ))}
       </View>
+
+      {subBloks.length > 1 && (
+        <>
+          <SectionTitle>{t('harvest.subBlok')}</SectionTitle>
+          <View style={styles.grid}>
+            {subBloks.map((x) => (
+              <Chip key={x.id} label={x.code} selected={x.id === effSubBlokId} onPress={() => setSubBlokId(x.id)} />
+            ))}
+          </View>
+        </>
+      )}
 
       <SectionTitle>{t('harvest.harvester')}</SectionTitle>
       {harvesters.length === 0 ? (
@@ -227,10 +252,27 @@ export default function NewHarvestTicketScreen() {
             )}
           </View>
         </View>
+        <PremiBreakdown premi={premi} />
       </Card>
 
       <Button kind="outline" icon={photo ? 'check-circle' : 'camera'} label={photo ? t('harvest.photoTaken') : t('harvest.photo')} onPress={() => setCamera(true)} />
-      <Button icon="content-save" label={t('harvest.save')} busy={busy} disabled={!tphId || !harvesterId} onPress={() => void save()} />
+      <Button
+        kind={verifier ? 'outline' : 'primary'}
+        icon="content-save"
+        label={t('harvest.save')}
+        busy={busy}
+        disabled={!tphId || !harvesterId || (subBloks.length > 0 && !effSubBlokId)}
+        onPress={() => void save()}
+      />
+      {verifier && (
+        <Button
+          icon="check-decagram"
+          label={t('harvest.saveContinue')}
+          busy={busy}
+          disabled={!tphId || !harvesterId || (subBloks.length > 0 && !effSubBlokId)}
+          onPress={() => void save(true)}
+        />
+      )}
 
       <CameraCapture
         visible={camera}

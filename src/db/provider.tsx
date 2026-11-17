@@ -49,10 +49,17 @@ export function useDb(): OpenedDatabase['db'] {
 /**
  * Hitung ulang nilai setiap kali salah satu tabel yang diawasi berubah.
  * Untuk query yang tidak bisa memakai useLiveQuery (agregat lintas tabel).
- * `tables` harus konstan selama komponen hidup.
+ * `tables` juga berfungsi sebagai kunci: elemen non-tabel (mis. id blok terpilih) memicu
+ * hitung ulang saat berubah.
  */
 export function useTableQuery<T>(tables: readonly string[], compute: () => T): T {
   const [value, setValue] = useState(compute);
+  const key = tables.join(',');
+  const [computedKey, setComputedKey] = useState(key);
+  if (computedKey !== key) {
+    setComputedKey(key);
+    setValue(compute());
+  }
   useEffect(() => {
     const watched = new Set(tables);
     const sub = addDatabaseChangeListener((e) => {
@@ -60,6 +67,6 @@ export function useTableQuery<T>(tables: readonly string[], compute: () => T): T
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tables.join(',')]);
+  }, [key]);
   return value;
 }

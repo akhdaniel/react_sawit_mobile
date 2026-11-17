@@ -6,6 +6,7 @@
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import { assignment, dailyReport, materialUsage, upkeep } from '../schema';
+import { effectiveMaintenanceTickets } from './maintenance';
 import type { AppDatabase } from '../types';
 import { attendanceByEmployee } from './attendance';
 import { effectiveTickets, transportedTicketUuids } from './harvest';
@@ -59,13 +60,20 @@ export function buildDailySummary(db: AppDatabase, date: string, gangId: number)
   const overDose = jobs.length
     ? db.select().from(materialUsage).where(and(inArray(materialUsage.upkeepUuid, jobs.map((j) => j.mobileUuid)), eq(materialUsage.overDose, true))).all().length
     : 0;
+  // Tiket perawatan (satu pekerja per tiket) + perawatan versi lama yang masih tersimpan di HP.
+  const maintenance = effectiveMaintenanceTickets(db, date).filter((m) => gangEmployees.has(m.workerEmployeeId));
   return {
     date,
     gangId,
     attendance: att,
     assignments,
     harvest,
-    upkeep: { jobs: jobs.length, hk: jobs.reduce((s, j) => s + j.hk, 0), ha: jobs.reduce((s, j) => s + (j.realizedHa ?? 0), 0), overDose },
+    upkeep: {
+      jobs: jobs.length + maintenance.length,
+      hk: jobs.reduce((s, j) => s + j.hk, 0) + maintenance.reduce((s, m) => s + m.hk, 0),
+      ha: Math.round((jobs.reduce((s, j) => s + (j.realizedHa ?? 0), 0) + maintenance.reduce((s, m) => s + m.areaHa, 0)) * 100) / 100,
+      overDose,
+    },
   };
 }
 

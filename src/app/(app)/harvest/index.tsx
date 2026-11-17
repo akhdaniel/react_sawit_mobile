@@ -12,11 +12,13 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { ticketViews } from '@/db/repositories/harvest';
 import { totalBunches, totalsByTph } from '@/features/harvest/calc';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
 
 export default function HarvestListScreen() {
+  const refresh = useRefresh();
   const { db, clock } = useServices();
   const workDate = clock.workDate();
   const tickets = useTableQuery(['harvest_ticket', 'spb', 'spb_line'], () => ticketViews(db, workDate));
@@ -26,7 +28,7 @@ export default function HarvestListScreen() {
   const perTph = useMemo(() => totalsByTph(tickets), [tickets]);
 
   return (
-    <Screen title={t('harvest.title')} subtitle={t('harvest.totals', { tickets: tickets.length, bunches, kg })} back>
+    <Screen refresh={refresh} title={t('harvest.title')} subtitle={t('harvest.totals', { tickets: tickets.length, bunches, kg })} back>
       <Button icon="ticket-confirmation" label={t('harvest.new')} onPress={() => router.push('/harvest/new')} />
       <SectionTitle>{t('harvest.today')}</SectionTitle>
       {tickets.length > 0 && (

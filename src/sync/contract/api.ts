@@ -92,6 +92,15 @@ export const transactionsResponseSchema = z.object({
 export type TransactionsResponse = z.infer<typeof transactionsResponseSchema>;
 
 export const txServerStatus = z.enum(['accepted', 'rejected', 'posted', 'unknown']);
+export const txDocumentSchema = z.object({
+  name: z.string(),
+  state: z.string(),
+  state_label: z.string().nullish(),
+  net_kg: z.number().nullish(),
+  /** Tahap ERP (mis. Verifikasi Mandor); kosong bila dokumen tidak bertahap. */
+  stage: z.string().nullish(),
+});
+export type TxDocument = z.infer<typeof txDocumentSchema>;
 export const transactionStatusResponseSchema = z.object({
   results: z.array(
     z.object({
@@ -99,6 +108,8 @@ export const transactionStatusResponseSchema = z.object({
       status: txServerStatus,
       reason: z.string().nullish(),
       posted_at: serverTime.nullish(),
+      /** Dokumen ERP hasil posting (tiket panen / SPB): nomor, status, netto timbang. */
+      document: txDocumentSchema.nullish(),
     }),
   ),
   server_time: serverTime,
@@ -134,6 +145,34 @@ export const approvalsPostResponseSchema = z.object({
   results: z.array(z.object({ mobile_uuid: uuid, status: txResultStatus, reason: z.string().nullish() })),
   server_time: serverTime,
 });
+
+// ---- Verifikasi tiket ------------------------------------------------------
+/** Tiket panen ERP yang tahap berikutnya milik user ini (mandor: verifikasi mandor, kerani: verifikasi kerani). */
+export const verificationItemSchema = z.object({
+  core_ticket_id: id,
+  name: z.string(),
+  work_date: z.string(),
+  stage: z.string().nullable(),
+  block_code: z.string(),
+  tph_code: z.string(),
+  sub_blok_name: z.string().nullable(),
+  harvester_id: id,
+  harvester_name: z.string(),
+  gang_name: z.string().nullable(),
+  ripe: z.int().nonnegative(),
+  unripe: z.int().nonnegative(),
+  rotten: z.int().nonnegative(),
+  empty_bunch: z.int().nonnegative(),
+  long_stalk: z.int().nonnegative(),
+  loose_fruit_kg: z.number().nonnegative(),
+  is_late_entry: z.boolean(),
+  has_photo: z.boolean(),
+  /** Tiket berasal dari HP (mobile_uuid tiket HP), null bila diinput di ERP. */
+  mobile_uuid: uuid.nullable(),
+  created_by: z.string().nullable(),
+});
+export type VerificationItem = z.infer<typeof verificationItemSchema>;
+export const verificationsResponseSchema = z.object({ items: z.array(verificationItemSchema), server_time: serverTime });
 
 // ---- Device --------------------------------------------------------------
 export const heartbeatRequestSchema = z.object({

@@ -4,7 +4,8 @@
  *   → melebihi batas = over_dose (wajib catatan, masuk antrean approval asisten).
  * - Estimasi upah sesuai wage_basis kegiatan.
  */
-import type { WageBasis } from '../harvest/calc';
+/** Dasar upah kegiatan perawatan (master activity). */
+export type WageBasis = 'daily' | 'per_ha' | 'per_tree' | 'per_bunch';
 
 export interface DoseRule {
   dosePerHa: number;

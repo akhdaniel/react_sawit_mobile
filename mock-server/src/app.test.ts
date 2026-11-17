@@ -10,6 +10,7 @@ import {
   MASTER_ENTITY_NAMES,
   masterResponseSchema,
   transactionsResponseSchema,
+  verificationsResponseSchema,
   transactionStatusResponseSchema,
   workplanResponseSchema,
 } from '../../src/sync/contract';
@@ -123,8 +124,15 @@ describe('seed & master', () => {
     assert.equal(m.changes.afdeling?.upserts.length, 3);
     assert.equal(m.changes.block?.upserts.length, 40);
     assert.equal(m.changes.tph?.upserts.length, 120);
-    assert.equal(m.changes.employee?.upserts.length, 200);
+    // 200 pekerja kemandoran + 6 sopir.
+    assert.equal(m.changes.employee?.upserts.length, 206);
     assert.ok((m.changes.work_plan?.upserts.length ?? 0) > 0);
+    // Master struktur ERP: sub blok (blok ke-5 punya dua), tarif panen, PKS, sopir, kepemilikan truk.
+    assert.equal(m.changes.sub_blok?.upserts.length, 48);
+    assert.equal(m.changes.harvest_rate?.upserts.length, 2);
+    assert.equal(m.changes.pks?.upserts.length, 2);
+    assert.equal(m.changes.employee?.upserts.filter((e) => e.role === 'sopir').length, 6);
+    assert.ok(m.changes.vehicle?.upserts.every((v) => v.ownership === 'own' || v.ownership === 'rental'));
   });
 
   it('delta via cursor hanya berisi perubahan + delete', async () => {
@@ -278,6 +286,57 @@ describe('transaksi', () => {
     assert.deepEqual(store.transactions.get(first.mobile_uuid)?.flags, ['unsynced_ticket']);
   });
 
+  it('struktur ERP: sub blok milik blok, susulan per sub blok; SPB dengan PKS, sopir karyawan, dan muatan per tiket', async () => {
+    const { access_token, user } = await login('mandor.panen');
+    const otherBlockSub = store.getMaster<{ id: number; block_id: number }>('sub_blok', 2)!;
+    assert.notEqual(otherBlockSub.block_id, 1);
+    const tA = ticket(user.id, 2, { sub_blok_id: 1 });
+    const r1 = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [checkIn(user.id, 2, 2), tA, ticket(user.id, 2, { sub_blok_id: otherBlockSub.id })] }, access_token)).json,
+    );
+    assert.deepEqual(r1.results.map((x) => x.reason ?? x.status), ['accepted', 'accepted', 'sub_blok_block_mismatch']);
+
+    const kt = await login('kerani.transport');
+    const spb = (n: number, extra: Record<string, unknown>) => ({
+      type: 'spb',
+      mobile_uuid: randomUUID(),
+      meta: meta(kt.user.id),
+      payload: {
+        work_date: today,
+        spb_no: `AFD01-${today.slice(2).replaceAll('-', '')}-ST01-${String(n).padStart(4, '0')}`,
+        vehicle_id: 1,
+        driver_name: 'Sopir',
+        destination: 'internal_mill',
+        parent_spb_uuid: null,
+        total_bunch: 6,
+        est_kg: 100,
+        photo_ids: [randomUUID(), randomUUID()],
+        harvest_ticket_uuids: [tA.mobile_uuid],
+        ...extra,
+      },
+    });
+    const line = { ticket_uuid: tA.mobile_uuid, bunch_count: 6, loose_fruit_kg: 0 };
+    const r2 = transactionsResponseSchema.parse(
+      (
+        await call(
+          'POST',
+          '/transactions',
+          {
+            items: [
+              spb(1, { pks_id: 99 }),
+              spb(2, { driver_employee_id: 2 }),
+              spb(3, { lines: [{ ...line, ticket_uuid: randomUUID() }] }),
+              spb(4, { lines: [{ ...line, bunch_count: 0 }] }),
+              spb(5, { pks_id: 1, driver_employee_id: 201, lines: [line] }),
+            ],
+          },
+          kt.access_token,
+        )
+      ).json,
+    );
+    assert.deepEqual(r2.results.map((x) => x.reason ?? x.status), ['unknown_pks', 'unknown_driver', 'spb_lines_mismatch', 'spb_line_empty', 'accepted']);
+  });
+
   it('material: over-dose wajib ditandai; yang ditandai masuk approval', async () => {
     const { access_token, user } = await login('mandor.rawat');
     const att = checkIn(user.id, 4, 4);
@@ -327,6 +386,86 @@ describe('transaksi', () => {
     s = transactionStatusResponseSchema.parse((await call('GET', `/transactions/status?ids=${att.mobile_uuid}`, undefined, access_token)).json);
     assert.equal(s.results[0]!.status, 'posted');
     assert.ok(s.results[0]!.posted_at);
+  });
+});
+
+describe('tiket pemupukan', () => {
+  // Gang 4 = kemandoran rawat afdeling 1; pekerja #16 anggotanya. Urea: dosis 1,25 kg/pokok.
+  const fertilization = (userId: number, over: Record<string, unknown> = {}) => ({
+    type: 'fertilization_ticket',
+    mobile_uuid: randomUUID(),
+    meta: meta(userId),
+    payload: {
+      work_date: today,
+      block_id: 1,
+      sub_blok_id: 1,
+      gang_id: 4,
+      worker_employee_id: 16,
+      product_id: 3,
+      method: 'manual',
+      application_round: 1,
+      tree_count: 100,
+      qty_kg: 125,
+      weather: null,
+      notes: null,
+      ...over,
+    },
+  });
+
+  it('diterima sesuai syarat ERP; melebihi dosis atau kemandoran panen ditolak', async () => {
+    const { access_token, user } = await login('mandor.rawat');
+    const items = [
+      checkIn(user.id, 16, 4),
+      fertilization(user.id),
+      fertilization(user.id, { qty_kg: 125.5 }),
+      fertilization(user.id, { gang_id: 1 }),
+      fertilization(user.id, { product_id: 1 }),
+    ];
+    const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items }, access_token)).json);
+    assert.deepEqual(
+      r.results.map((x) => x.reason ?? x.status),
+      ['accepted', 'accepted', 'over_dose', 'gang_not_rawat', 'unknown_fertilizer'],
+    );
+  });
+});
+
+describe('tiket perawatan', () => {
+  // Gang 4 = kemandoran rawat afdeling 1; pekerja #16 anggotanya. Glifosat: dosis 2 L/ha.
+  const maintenance = (userId: number, over: Record<string, unknown> = {}) => ({
+    type: 'maintenance_ticket',
+    mobile_uuid: randomUUID(),
+    meta: meta(userId),
+    payload: {
+      work_date: today,
+      block_id: 1,
+      sub_blok_id: 1,
+      gang_id: 4,
+      worker_employee_id: 16,
+      work_type: 'semprot_gulma',
+      area_ha: 1.5,
+      tree_count: 0,
+      hk: 1,
+      weather: null,
+      notes: null,
+      materials: [{ product_id: 1, qty: 3 }],
+      ...over,
+    },
+  });
+
+  it('diterima sesuai syarat ERP; melebihi dosis atau tanpa hasil kerja ditolak', async () => {
+    const { access_token, user } = await login('mandor.rawat');
+    const items = [
+      checkIn(user.id, 16, 4),
+      maintenance(user.id),
+      maintenance(user.id, { materials: [{ product_id: 1, qty: 3.01 }] }),
+      maintenance(user.id, { work_type: 'pruning', area_ha: 0, tree_count: 0, materials: [] }),
+      maintenance(user.id, { work_type: 'perawatan_parit', area_ha: 0, hk: 0.5, materials: [] }),
+    ];
+    const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items }, access_token)).json);
+    assert.deepEqual(
+      r.results.map((x) => x.reason ?? x.status),
+      ['accepted', 'accepted', 'over_dose', 'invalid_work_qty', 'accepted'],
+    );
   });
 });
 
@@ -412,5 +551,47 @@ describe('approval & heartbeat', () => {
     const r = await call('POST', '/device/heartbeat', { app_version: '0.1.0', battery: 0.8, pending_count: 3, last_sync_at: null }, access_token);
     assert.equal(r.status, 200);
     assert.equal(store.heartbeats.get('dev-1')?.pending_count, 3);
+  });
+});
+
+describe('verifikasi tiket (Lanjutkan)', () => {
+  const confirm = (userId: number, target: { target_uuid?: string; core_ticket_id?: number }) => ({
+    type: 'stage_confirm',
+    mobile_uuid: randomUUID(),
+    meta: meta(userId),
+    payload: { target_type: 'harvest_ticket', target_uuid: target.target_uuid ?? null, core_ticket_id: target.core_ticket_id ?? null },
+  });
+
+  it('tiket kerani muncul di antrean mandor; Lanjutkan mandor menghapusnya', async () => {
+    const kerani = await login('kerani.panen');
+    const mandor = await login('mandor.panen');
+    await call('POST', '/transactions', { items: [checkIn(mandor.user.id, 2, 2)] }, mandor.access_token);
+    const tk = ticket(kerani.user.id, 2);
+    const own = confirm(kerani.user.id, { target_uuid: tk.mobile_uuid });
+    const sent = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [tk, own] }, kerani.access_token)).json);
+    assert.deepEqual(sent.results.map((r) => r.status), ['accepted', 'accepted']);
+
+    const queue = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, mandor.access_token)).json);
+    assert.equal(queue.items.length, 1);
+    assert.equal(queue.items[0]!.mobile_uuid, tk.mobile_uuid);
+    assert.equal(queue.items[0]!.created_by, 'Rina Marlina');
+    const mine = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, kerani.access_token)).json);
+    assert.equal(mine.items.length, 0);
+
+    const go = confirm(mandor.user.id, { core_ticket_id: queue.items[0]!.core_ticket_id });
+    const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [go] }, mandor.access_token)).json);
+    assert.equal(r.results[0]!.status, 'accepted');
+    const after = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, mandor.access_token)).json);
+    assert.equal(after.items.length, 0);
+  });
+
+  it('target tidak dikenal ditolak; peran lain tidak punya antrean', async () => {
+    const mandor = await login('mandor.panen');
+    const r = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [confirm(mandor.user.id, { core_ticket_id: 999999 })] }, mandor.access_token)).json,
+    );
+    assert.equal(r.results[0]!.reason, 'target_not_found');
+    const transport = await login('kerani.transport');
+    assert.equal((await call('GET', '/verifications', undefined, transport.access_token)).status, 403);
   });
 });

@@ -11,18 +11,21 @@ import { Screen } from '@/components/Screen';
 import { StatusPill } from '@/components/StatusPill';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { spbLines } from '@/db/repositories/transport';
-import { harvestTicket, spb, vehicle } from '@/db/schema';
+import { spbLoadLines } from '@/db/repositories/transport';
+import { harvestTicket, pks, spb, vehicle } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
+import { DocumentStatus } from '@/features/entry/DocumentStatus';
 import { totalBunches } from '@/features/harvest/calc';
 import { encodeSpbQr } from '@/features/transport/actions';
 import { printWithSavedPrinter, PrinterNotConfiguredError } from '@/features/transport/print';
 import { buildSpbReceipt } from '@/features/transport/receipts';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { spacing } from '@/theme';
 
 export default function SpbDetailScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const user = useSession((s) => s.user);
   const { id, fresh } = useLocalSearchParams<{ id: string; fresh?: string }>();
@@ -31,18 +34,24 @@ export default function SpbDetailScreen() {
   const parentNo = useTableQuery(['spb'], () =>
     row?.parentSpbUuid ? (db.select({ n: spb.spbNo }).from(spb).where(eq(spb.mobileUuid, row.parentSpbUuid)).get()?.n ?? null) : null,
   );
+  const millName = useTableQuery(['pks', 'spb'], () => (row?.pksId ? (db.select({ n: pks.name }).from(pks).where(eq(pks.id, row.pksId)).get()?.n ?? null) : null));
   const lines = useTableQuery(['spb_line', 'harvest_ticket'], () => {
-    const uuids = spbLines(db, id);
+    const rows = spbLoadLines(db, id);
+    const uuids = rows.map((r) => r.harvestTicketUuid);
     const known = new Map(
       (uuids.length ? db.select().from(harvestTicket).where(inArray(harvestTicket.mobileUuid, uuids)).all() : []).map((x) => [x.mobileUuid, x]),
     );
-    return uuids.map((u) => ({ uuid: u, ticket: known.get(u) ?? null }));
+    return rows.map((r) => {
+      const ticket = known.get(r.harvestTicketUuid) ?? null;
+      // Muatan null = data versi lama (tiket dimuat utuh).
+      return { uuid: r.harvestTicketUuid, ticket, bunches: r.bunchCount ?? (ticket ? totalBunches(ticket) : 0), looseKg: r.looseFruitKg };
+    });
   });
   const [printing, setPrinting] = useState(false);
 
   if (!row) {
     return (
-      <Screen title="SPB" back>
+      <Screen refresh={refresh} title="SPB" back>
         <Txt>—</Txt>
       </Screen>
     );
@@ -65,7 +74,7 @@ export default function SpbDetailScreen() {
           tickets: lines.map((l) => ({
             ticketNo: l.ticket?.ticketNo ?? l.uuid.slice(0, 8),
             blockCode: '',
-            bunches: l.ticket ? totalBunches(l.ticket) : 0,
+            bunches: l.bunches,
             estKg: l.ticket?.estKg ?? 0,
           })),
           totalBunch: row.totalBunch,
@@ -84,7 +93,7 @@ export default function SpbDetailScreen() {
   };
 
   return (
-    <Screen title={row.spbNo} subtitle={fresh ? t('transport.saved', { no: row.spbNo }) : undefined} back>
+    <Screen refresh={refresh} title={row.spbNo} subtitle={fresh ? t('transport.saved', { no: row.spbNo }) : undefined} back>
       <Card padded style={{ alignItems: 'center' }}>
         <View style={styles.qr}>
           <QRCode value={qr} size={200} />
@@ -96,7 +105,7 @@ export default function SpbDetailScreen() {
       </Card>
       <Card>
         <ListRow icon="truck" label={plate} description={row.driverName} />
-        <ListRow icon="factory" tone="accent" label={t('transport.destination')} value={t(`transport.${row.destination}`)} />
+        <ListRow icon="factory" tone="accent" label={t('transport.destination')} value={millName ?? t(`transport.${row.destination}`)} />
         <ListRow icon="sigma" label={t('transport.total', { bunches: row.totalBunch, kg: Math.round(row.estKg) })} last />
       </Card>
       <SectionTitle>{t('transport.tickets', { count: lines.length })}</SectionTitle>
@@ -106,11 +115,16 @@ export default function SpbDetailScreen() {
             key={l.uuid}
             icon="ticket-confirmation"
             label={l.ticket?.ticketNo ?? l.uuid}
-            description={l.ticket ? `${totalBunches(l.ticket)} jjg · ${Math.round(l.ticket.estKg)} kg` : undefined}
+            description={
+              l.ticket && l.bunches < totalBunches(l.ticket)
+                ? t('transport.loadPartial', { loaded: l.bunches, total: totalBunches(l.ticket) })
+                : `${l.bunches} jjg${l.looseKg ? ` · brondolan ${l.looseKg} kg` : ''}`
+            }
             last={i === lines.length - 1}
           />
         ))}
       </Card>
+      <DocumentStatus mobileUuid={row.mobileUuid} status={row.status} />
       <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/transport/entry/[id]', params: { id: row.mobileUuid } })} />
       <Button icon="printer" label={t('transport.print')} busy={printing} onPress={() => void print()} />
       <Button kind="outline" icon="truck-delivery" label={t('transport.langsir')} onPress={() => router.push({ pathname: '/transport/new', params: { parent: row.mobileUuid } })} />

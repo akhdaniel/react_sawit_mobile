@@ -17,6 +17,7 @@ import {
   photoUploadFieldsSchema,
   txItemSchema,
   type MasterEntityName,
+  type TxItem,
 } from '../../src/sync/contract';
 import { afdelingOf, evaluate, summarize } from './rules';
 import type { Store } from './store';
@@ -211,6 +212,56 @@ export function createApp(store: Store) {
       return { mobile_uuid: d.mobile_uuid, status: 'accepted' as const, reason: null };
     });
     res.json({ results });
+  });
+
+  // ---- Verifikasi tiket --------------------------------------------------
+  // Mock tanpa tahap ERP: antrean = tiket panen user lain di afdeling user yang belum dilanjutkan user ini.
+  api.get('/verifications', requireAuth, (req, res) => {
+    const { user } = (req as Authed).session;
+    if (!user.roles.includes('mandor_panen') && !user.roles.includes('kerani_panen')) {
+      throw new HttpError(403, 'forbidden', 'hanya mandor panen atau kerani panen');
+    }
+    const continued = new Set<string | number>();
+    for (const t of store.transactions.values()) {
+      if (t.item.type !== 'stage_confirm' || t.userId !== user.id || t.status !== 'accepted') continue;
+      continued.add(t.item.payload.target_uuid ?? t.item.payload.core_ticket_id!);
+    }
+    const items = [...store.transactions.values()]
+      .filter((t) => t.item.type === 'harvest_ticket' && t.status === 'accepted' && t.userId !== user.id)
+      .filter((t) => !continued.has(t.item.mobile_uuid) && !continued.has(t.serverId!))
+      .filter((t) => {
+        const afd = afdelingOf(store, t.item);
+        return afd != null && user.afdeling_ids.includes(afd);
+      })
+      .map((t) => {
+        const p = (t.item as Extract<TxItem, { type: 'harvest_ticket' }>).payload;
+        const block = store.getMaster<{ id: number; code: string }>('block', p.block_id);
+        const tph = store.getMaster<{ id: number; code: string }>('tph', p.tph_id);
+        const harvester = store.getMaster<{ id: number; name: string }>('employee', p.harvester_employee_id);
+        return {
+          core_ticket_id: t.serverId!,
+          name: p.ticket_no,
+          work_date: p.work_date,
+          stage: 'Draft',
+          block_code: block?.code ?? '',
+          tph_code: tph?.code ?? '',
+          sub_blok_name: null,
+          harvester_id: p.harvester_employee_id,
+          harvester_name: harvester?.name ?? `#${p.harvester_employee_id}`,
+          gang_name: null,
+          ripe: p.ripe,
+          unripe: p.unripe,
+          rotten: p.rotten,
+          empty_bunch: p.empty_bunch,
+          long_stalk: p.long_stalk,
+          loose_fruit_kg: p.loose_fruit_kg,
+          is_late_entry: p.is_late_entry,
+          has_photo: p.photo_id != null,
+          mobile_uuid: t.item.mobile_uuid,
+          created_by: store.users.find((u) => u.id === t.userId)?.name ?? null,
+        };
+      });
+    res.json({ items });
   });
 
   // ---- Device ------------------------------------------------------------

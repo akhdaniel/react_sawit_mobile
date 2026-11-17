@@ -5,26 +5,27 @@ import { Button } from '@/components/Button';
 import { Card, SectionTitle } from '@/components/Card';
 import { Icon } from '@/components/Icon';
 import { Screen } from '@/components/Screen';
-import { StatusPill } from '@/components/StatusPill';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { upkeepsFor } from '@/db/repositories/upkeep';
+import { fertilizationViews } from '@/db/repositories/fertilization';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
 
-export default function UpkeepListScreen() {
+export default function FertilizationListScreen() {
+  const refresh = useRefresh();
   const { db, clock } = useServices();
   const workDate = clock.workDate();
-  const rows = useTableQuery(['upkeep', 'material_usage'], () => upkeepsFor(db, workDate));
+  const rows = useTableQuery(['fertilization_ticket', 'tx_document'], () => fertilizationViews(db, workDate));
 
   return (
-    <Screen title={t('upkeep.title')} back>
-      <Button icon="sprout" label={t('upkeep.new')} onPress={() => router.push('/upkeep/new')} />
-      <SectionTitle>{t('upkeep.today')}</SectionTitle>
+    <Screen refresh={refresh} title={t('fertilization.title')} back>
+      <Button icon="sack" label={t('fertilization.new')} onPress={() => router.push('/fertilization/new')} />
+      <SectionTitle>{`${t('fertilization.today')} (${rows.length})`}</SectionTitle>
       {rows.length === 0 ? (
         <Card padded>
-          <Txt>{t('upkeep.none')}</Txt>
+          <Txt>{t('fertilization.none')}</Txt>
         </Card>
       ) : (
         <Card>
@@ -32,25 +33,21 @@ export default function UpkeepListScreen() {
             <Pressable
               key={r.mobileUuid}
               accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/upkeep/[id]', params: { id: r.mobileUuid } })}
+              onPress={() => router.push({ pathname: '/fertilization/[id]', params: { id: r.mobileUuid } })}
               style={({ pressed }) => [styles.row, i < rows.length - 1 && styles.divider, pressed && { backgroundColor: colors.surfaceMuted }]}
             >
               <View style={styles.icon}>
-                <Icon name="sprout" size={24} color={colors.primary} />
+                <Icon name="sack" size={24} color={colors.primary} />
               </View>
               <View style={{ flex: 1, gap: 2 }}>
-                <Txt style={{ fontWeight: '700' }}>
-                  {r.activityName} · {t('upkeep.block')} {r.blockCode}
+                <Txt style={{ fontWeight: '700' }}>{r.workerName}</Txt>
+                <Txt variant="small" style={{ color: colors.textMuted }}>
+                  {t('fertilization.block')} {r.blockCode}
+                  {r.subBlokCode ? ` / ${r.subBlokCode}` : ''} · {r.productName}
                 </Txt>
                 <Txt variant="small" style={{ color: colors.textMuted }}>
-                  {r.hk} HK{r.realizedHa != null ? ` · ${r.realizedHa} ha` : ''}{r.realizedTrees != null ? ` · ${r.realizedTrees} pokok` : ''} · {t(`status.${r.status}`)}
+                  {r.treeCount} pokok · {r.qtyKg} kg · {t(`status.${r.status}`)}
                 </Txt>
-                {r.materials.map((m, j) => (
-                  <View key={j} style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
-                    <Txt variant="small">• {m.productName}: {m.qty} {m.uom}</Txt>
-                    {m.overDose && <StatusPill label={t('upkeep.overBadge')} tone="danger" />}
-                  </View>
-                ))}
               </View>
               <Icon name="chevron-right" size={24} color={colors.textMuted} />
             </Pressable>

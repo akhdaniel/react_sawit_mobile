@@ -1,7 +1,8 @@
 /**
  * QR tiket panen — dipindai kerani transport (perangkat lain, offline) untuk menyusun SPB.
  * Memuat data secukupnya karena tiket belum tentu ada di DB perangkat pemindai.
- * Format: XSM1|HT|<uuid>|<ticket_no>|<block_code>|<tph_code>|<janjang>|<est_kg>|<work_date>
+ * Format: XSM1|HT|<uuid>|<ticket_no>|<block_code>|<tph_code>|<janjang>|<est_kg>|<work_date>|<brondolan_kg>
+ * QR lama (tanpa brondolan, 7 bagian) tetap terbaca dengan brondolan tidak diketahui (null).
  */
 import { z } from 'zod';
 
@@ -17,6 +18,8 @@ export const ticketQrSchema = z.object({
   bunches: z.int().nonnegative(),
   estKg: z.number().nonnegative(),
   workDate: z.iso.date(),
+  /** null = QR versi lama, brondolan tidak diketahui. */
+  looseFruitKg: z.number().nonnegative().nullable(),
 });
 
 export type TicketQr = z.infer<typeof ticketQrSchema>;
@@ -26,15 +29,15 @@ const clean = (s: string) => s.replaceAll('|', '/');
 export function encodeTicketQr(t: TicketQr): string {
   return (
     TICKET_QR_PREFIX +
-    [t.uuid, t.ticketNo, clean(t.blockCode), clean(t.tphCode), t.bunches, t.estKg, t.workDate].join('|')
+    [t.uuid, t.ticketNo, clean(t.blockCode), clean(t.tphCode), t.bunches, t.estKg, t.workDate, t.looseFruitKg ?? 0].join('|')
   );
 }
 
 export function parseTicketQr(raw: string): TicketQr | null {
   if (!raw.startsWith(TICKET_QR_PREFIX)) return null;
   const parts = raw.slice(TICKET_QR_PREFIX.length).split('|');
-  if (parts.length !== 7) return null;
-  const [uuid, ticketNo, blockCode, tphCode, bunches, kg, workDate] = parts as [string, string, string, string, string, string, string];
+  if (parts.length !== 7 && parts.length !== 8) return null;
+  const [uuid, ticketNo, blockCode, tphCode, bunches, kg, workDate, loose] = parts as [string, string, string, string, string, string, string, string?];
   const parsed = ticketQrSchema.safeParse({
     uuid,
     ticketNo,
@@ -43,6 +46,7 @@ export function parseTicketQr(raw: string): TicketQr | null {
     bunches: Number(bunches),
     estKg: Number(kg),
     workDate,
+    looseFruitKg: loose == null || loose === '' ? null : Number(loose),
   });
   return parsed.success ? parsed.data : null;
 }

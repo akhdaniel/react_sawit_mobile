@@ -2,13 +2,15 @@
  * Sync engine — SATU-SATUNYA tempat aplikasi memanggil API.
  *
  * Urutan: push transaksi → unggah foto → polling status → tarik master (delta cursor) →
- * rencana kerja hari ini → heartbeat. Push didahulukan agar data lapangan secepatnya keluar
+ * rencana kerja hari ini → antrean approval (asisten) → antrean verifikasi tiket (mandor/kerani panen) → heartbeat. Push didahulukan agar data lapangan secepatnya keluar
  * dari HP. Error jaringan/autentikasi menghentikan langkah berikutnya; error server pada satu
  * langkah dicatat lalu langkah lain tetap dicoba.
  */
 import { getPendingSummary } from '../db/repositories/pending';
 import { replaceInbox, type InboxItem } from '../db/repositories/approval';
+import { replaceVerificationQueue } from '../db/repositories/verification';
 import { applyMasterChanges, getCursor, resetMasterData, upsertWorkPlans } from '../db/repositories/master';
+import { DOCUMENT_WATCH_DAYS } from '../db/repositories/documents';
 import { getMeta, META_KEYS, setMeta } from '../db/repositories/meta';
 import {
   applyPushResults,
@@ -25,7 +27,7 @@ import {
 } from '../db/repositories/outbox';
 import type { AppDatabase } from '../db/types';
 import { AuthRequiredError } from './api-client';
-import type { MasterRecord, MasterResponse, TxItem } from './contract';
+import type { MasterRecord, MasterResponse, TxItem, VerificationItem } from './contract';
 import { MAX_TX_BATCH } from './contract';
 import { ApiError, NetworkError } from './http';
 
@@ -37,10 +39,20 @@ export interface SyncApi {
   uploadPhoto(photo: PhotoRow): Promise<{ photo_id: number }>;
   heartbeat(body: { app_version: string; battery: number | null; pending_count: number; last_sync_at: string | null }): Promise<void>;
   getApprovals(afdelingId: number): Promise<{ items: InboxItem[] }>;
+  getVerifications(): Promise<{ items: VerificationItem[] }>;
 }
 
-export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'heartbeat';
-export const SYNC_STEPS: readonly SyncStep[] = ['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'heartbeat'];
+export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'verifications' | 'heartbeat';
+export const SYNC_STEPS: readonly SyncStep[] = [
+  'push',
+  'photos',
+  'status',
+  'master',
+  'workplan',
+  'approvals',
+  'verifications',
+  'heartbeat',
+];
 
 export type SyncErrorKind = 'offline' | 'auth' | 'server' | 'unknown';
 
@@ -54,6 +66,8 @@ export interface SyncResult {
   master: { pages: number; upserted: number; deleted: number };
   workplan: { items: number };
   approvals: { items: number };
+  /** Opsional: hasil sinkron yang tersimpan dari versi aplikasi lama belum punya kolom ini. */
+  verifications?: { items: number };
   /** Error yang menghentikan sinkron (offline/auth) atau error per langkah. */
   errors: { step: SyncStep; kind: SyncErrorKind; message: string }[];
 }
@@ -70,6 +84,8 @@ export interface SyncDeps {
   onStep?(step: SyncStep): void;
   /** Afdeling yang inbox approval-nya ditarik (hanya untuk peran asisten). */
   approvalAfdelingIds?: number[];
+  /** Tarik antrean verifikasi tiket panen (hanya untuk mandor panen / kerani panen). */
+  verificationEnabled?: boolean;
   batchSize?: number;
   statusChunk?: number;
   photoLimit?: number;
@@ -96,6 +112,7 @@ function emptyResult(startedAt: string): SyncResult {
     master: { pages: 0, upserted: 0, deleted: 0 },
     workplan: { items: 0 },
     approvals: { items: 0 },
+    verifications: { items: 0 },
     errors: [],
   };
 }
@@ -150,13 +167,20 @@ async function uploadPhotos(d: SyncDeps, r: SyncResult): Promise<void> {
   }
 }
 
+/** YYYY-MM-DD digeser `days` hari. */
+export function shiftDate(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function pollStatus(d: SyncDeps, r: SyncResult): Promise<void> {
   const chunk = d.statusChunk ?? 100;
-  const awaiting = listAwaitingPost(d.db, 2000);
+  const awaiting = listAwaitingPost(d.db, 2000, shiftDate(d.workDate(), -DOCUMENT_WATCH_DAYS));
   for (let i = 0; i < awaiting.length; i += chunk) {
     const part = awaiting.slice(i, i + chunk);
     const res = await d.api.getStatus(part.map((a) => a.mobileUuid));
-    const s = applyStatusResults(d.db, part, res.results);
+    const s = applyStatusResults(d.db, part, res.results, d.nowIso());
     r.status.checked += part.length;
     r.status.posted += s.posted;
     r.status.rejected += s.rejected;
@@ -196,6 +220,13 @@ async function pullApprovals(d: SyncDeps, r: SyncResult): Promise<void> {
   }
 }
 
+async function pullVerifications(d: SyncDeps, r: SyncResult): Promise<void> {
+  if (!d.verificationEnabled) return;
+  const res = await d.api.getVerifications();
+  replaceVerificationQueue(d.db, res.items, d.nowIso());
+  r.verifications = { items: res.items.length };
+}
+
 async function sendHeartbeat(d: SyncDeps): Promise<void> {
   await d.api.heartbeat({
     app_version: d.appVersion,
@@ -214,6 +245,7 @@ export async function runSync(d: SyncDeps): Promise<SyncResult> {
     ['master', () => pullMaster(d, r)],
     ['workplan', () => pullWorkplan(d, r)],
     ['approvals', () => pullApprovals(d, r)],
+    ['verifications', () => pullVerifications(d, r)],
     ['heartbeat', () => sendHeartbeat(d)],
   ];
   try {

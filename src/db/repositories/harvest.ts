@@ -2,8 +2,9 @@
  * Tiket panen.
  *
  * - Pemanen wajib sudah check-in hadir hari itu.
- * - Satu TPH + satu pemanen + satu tanggal = satu tiket; tiket berikutnya otomatis
- *   ditandai susulan (is_late_entry).
+ * - Satu TPH + satu sub blok + satu pemanen + satu tanggal = satu tiket (kunci tiket panen ERP);
+ *   tiket berikutnya otomatis ditandai susulan (is_late_entry).
+ * - Sub blok wajib bila blok punya sub blok di master (kelas medannya menentukan tarif).
  * - Nomor tiket dibuat offline: <kode_afdeling>-<yyMMdd>-<device_short>-<seq>.
  * - Koreksi = tiket baru (nomor baru) dengan correction_of; tiket asal tidak diubah.
  * - Status turunan: terangkut bila sudah masuk SPB (tidak ditolak); bila belum di akhir
@@ -11,7 +12,8 @@
  */
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 
-import { afdeling, block, employee, harvestTicket, spb, spbLine, tph } from '../schema';
+import { estKg, findRate, premiEstimate, type BunchCounts, type PremiEstimate } from '../../features/harvest/calc';
+import { afdeling, block, employee, harvestRate, harvestTicket, spb, spbLine, subBlok, tph } from '../schema';
 import type { AppDatabase } from '../types';
 import { presentEmployeeIds } from './attendance';
 import { insertPhoto, linkPhoto, type NewPhoto } from './photos';
@@ -29,17 +31,22 @@ export function effectiveTickets(db: AppDatabase, workDate?: string): HarvestTic
   return rows.filter((r) => !superseded.has(r.mobileUuid));
 }
 
-/** Tiket efektif lain untuk TPH + pemanen + tanggal yang sama (penentu susulan). */
+/** Tiket efektif lain untuk TPH + sub blok + pemanen + tanggal yang sama (penentu susulan). */
 export function findDuplicateTicket(
   db: AppDatabase,
   workDate: string,
   tphId: number,
   harvesterEmployeeId: number,
+  subBlokId: number | null = null,
   excludeUuid?: string,
 ): HarvestTicketRow | null {
   return (
     effectiveTickets(db, workDate).find(
-      (t) => t.tphId === tphId && t.harvesterEmployeeId === harvesterEmployeeId && t.mobileUuid !== excludeUuid,
+      (t) =>
+        t.tphId === tphId &&
+        t.harvesterEmployeeId === harvesterEmployeeId &&
+        (t.subBlokId ?? null) === subBlokId &&
+        t.mobileUuid !== excludeUuid,
     ) ?? null
   );
 }
@@ -48,6 +55,8 @@ export type HarvestErrorCode =
   | 'harvester_not_present'
   | 'unknown_tph'
   | 'tph_block_mismatch'
+  | 'sub_blok_required'
+  | 'sub_blok_mismatch'
   | 'block_not_tm'
   | 'empty_ticket'
   | 'invalid_count'
@@ -57,6 +66,8 @@ export interface HarvestInput {
   workDate: string;
   tphId: number;
   blockId: number;
+  /** Wajib bila blok punya sub blok di master. */
+  subBlokId?: number | null;
   harvesterEmployeeId: number;
   ripe: number;
   unripe: number;
@@ -78,6 +89,12 @@ export function validateTicket(db: AppDatabase, input: HarvestInput): HarvestErr
   else if (t.blockId !== input.blockId) issues.push('tph_block_mismatch');
   const b = db.select().from(block).where(eq(block.id, input.blockId)).get();
   if (b && b.status !== 'TM') issues.push('block_not_tm');
+  if (input.subBlokId != null) {
+    const sb = db.select().from(subBlok).where(eq(subBlok.id, input.subBlokId)).get();
+    if (!sb || sb.blockId !== input.blockId) issues.push('sub_blok_mismatch');
+  } else if (subBloksOf(db, input.blockId).length > 0) {
+    issues.push('sub_blok_required');
+  }
 
   if (!presentEmployeeIds(db, input.workDate).has(input.harvesterEmployeeId)) issues.push('harvester_not_present');
 
@@ -131,7 +148,7 @@ export function createTicket(
     if (input.correctionOf) {
       isLateEntry = t.select({ l: harvestTicket.isLateEntry }).from(harvestTicket).where(eq(harvestTicket.mobileUuid, input.correctionOf)).get()?.l ?? false;
     } else {
-      isLateEntry = findDuplicateTicket(t, input.workDate, input.tphId, input.harvesterEmployeeId) != null;
+      isLateEntry = findDuplicateTicket(t, input.workDate, input.tphId, input.harvesterEmployeeId, input.subBlokId ?? null) != null;
     }
     if (photoRow) insertPhoto(t, photoRow);
     t.insert(harvestTicket)
@@ -142,6 +159,7 @@ export function createTicket(
         ticketNo,
         tphId: input.tphId,
         blockId: input.blockId,
+        subBlokId: input.subBlokId ?? null,
         harvesterEmployeeId: input.harvesterEmployeeId,
         ripe: input.ripe,
         unripe: input.unripe,
@@ -158,6 +176,40 @@ export function createTicket(
     created = { mobileUuid: common.mobileUuid, ticketNo, isLateEntry, estKg };
   });
   return created;
+}
+
+export function subBloksOf(db: AppDatabase, blockId: number) {
+  return db.select().from(subBlok).where(eq(subBlok.blockId, blockId)).orderBy(subBlok.code).all();
+}
+
+/**
+ * Estimasi berat dan premi tiket dari master lokal: BJR blok, kelas medan sub blok, dan tarif panen
+ * ERP yang berlaku untuk estate blok + tipe karyawan pemanen + tanggal.
+ */
+export function ticketPremi(
+  db: AppDatabase,
+  input: { workDate: string; blockId: number | null; subBlokId: number | null; harvesterEmployeeId: number | null },
+  counts: BunchCounts,
+): { bjrKg: number; estKg: number; premi: PremiEstimate } {
+  const b = input.blockId
+    ? db
+        .select({ bjrKg: block.bjrKg, estateId: afdeling.estateId })
+        .from(block)
+        .innerJoin(afdeling, eq(afdeling.id, block.afdelingId))
+        .where(eq(block.id, input.blockId))
+        .get()
+    : undefined;
+  const bjrKg = b?.bjrKg ?? 0;
+  const terrainClassId = input.subBlokId
+    ? (db.select({ c: subBlok.terrainClassId }).from(subBlok).where(eq(subBlok.id, input.subBlokId)).get()?.c ?? null)
+    : null;
+  const employeeType = input.harvesterEmployeeId
+    ? (db.select({ t: employee.employeeType }).from(employee).where(eq(employee.id, input.harvesterEmployeeId)).get()?.t ?? null)
+    : null;
+  const rate = input.harvesterEmployeeId
+    ? findRate(db.select().from(harvestRate).all(), { workDate: input.workDate, estateId: b?.estateId ?? null, employeeType })
+    : null;
+  return { bjrKg, estKg: estKg(counts, bjrKg), premi: premiEstimate(counts, bjrKg, rate, terrainClassId) };
 }
 
 /** UUID tiket yang sudah masuk SPB yang tidak ditolak. */

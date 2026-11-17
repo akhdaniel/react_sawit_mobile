@@ -3,11 +3,11 @@
  *
  * - Antrean = status queued + sent (sent = sudah dikirim tetapi hasilnya belum pasti, mis.
  *   koneksi putus di tengah; dikirim ulang dengan aman karena idempoten per mobile_uuid).
- * - Urutan kirim mengikuti dependensi bisnis: absen → penugasan → panen → SPB → rawat →
- *   material → laporan → approval, lalu waktu pembuatan.
+ * - Urutan kirim mengikuti dependensi bisnis: absen → penugasan → panen → lanjutkan tahap tiket → SPB →
+ *   pemupukan → perawatan → rawat & material (versi lama) → laporan → approval, lalu waktu pembuatan.
  * - Hanya kolom status/meta server yang diperbarui — kolom bisnis tidak pernah disentuh.
  */
-import { and, asc, eq, getTableColumns, inArray, isNotNull, ne } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, gte, inArray, isNotNull, ne } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { z } from 'zod';
 
@@ -15,18 +15,23 @@ import {
   txItemSchema,
   txMetaSchema,
   txPayloadSchemas,
+  type TxDocument,
   type TxItem,
   type TxTypeName,
 } from '../../sync/contract';
-import { photo, spbLine, transactionTables, type TransactionType } from '../schema';
+import { fertilizationTicket, harvestTicket, maintenanceTicket, photo, spb, spbLine, transactionTables, txDocument, type TransactionType } from '../schema';
 import type { AppDatabase } from '../types';
+import { FINAL_DOCUMENT_STATES, upsertDocument } from './documents';
 
 /** Urutan kirim (dependensi: tiket panen butuh absen, SPB butuh tiket, dst.). */
 export const TX_PUSH_ORDER: readonly TransactionType[] = [
   'attendance',
   'assignment',
   'harvest_ticket',
+  'stage_confirm',
   'spb',
+  'fertilization_ticket',
+  'maintenance_ticket',
   'upkeep',
   'material_usage',
   'daily_report',
@@ -72,12 +77,17 @@ export function buildTxItem(
     if (k in named) payload[k] = named[k];
   }
   if (type === 'spb') {
-    payload.harvest_ticket_uuids = db
-      .select({ u: spbLine.harvestTicketUuid })
-      .from(spbLine)
-      .where(eq(spbLine.spbUuid, String(named.mobile_uuid)))
-      .all()
-      .map((r) => r.u);
+    const lines = db.select().from(spbLine).where(eq(spbLine.spbUuid, String(named.mobile_uuid))).all();
+    payload.harvest_ticket_uuids = lines.map((l) => l.harvestTicketUuid);
+    // Muatan per tiket (baris SPB ERP). Bila ada muatan yang tidak lengkap (SPB versi lama, brondolan
+    // dari QR lama tidak diketahui), muatan tidak dikirim dan ERP memuat tiket utuh.
+    if (lines.every((l) => l.bunchCount != null && l.looseFruitKg != null)) {
+      payload.lines = lines.map((l) => ({
+        ticket_uuid: l.harvestTicketUuid,
+        bunch_count: l.bunchCount,
+        loose_fruit_kg: l.looseFruitKg,
+      }));
+    }
   }
   const meta: Row = { app_version: appVersion };
   for (const k of META_KEYS) meta[k] = named[k];
@@ -172,8 +182,15 @@ export function applyPushResults(db: AppDatabase, entries: OutboxEntry[], result
   return summary;
 }
 
-/** Transaksi accepted yang belum posted — untuk polling status. */
-export function listAwaitingPost(db: AppDatabase, limit: number): { type: TransactionType; mobileUuid: string }[] {
+/**
+ * Transaksi yang statusnya ditanyakan ke server: yang masih `accepted`, ditambah tiket panen / SPB /
+ * tiket pemupukan / tiket perawatan `posted` sejak `watchSince` (YYYY-MM-DD) yang dokumen ERP-nya belum berstatus akhir.
+ */
+export function listAwaitingPost(
+  db: AppDatabase,
+  limit: number,
+  watchSince?: string,
+): { type: TransactionType; mobileUuid: string }[] {
   const out: { type: TransactionType; mobileUuid: string }[] = [];
   for (const type of TX_PUSH_ORDER) {
     if (out.length >= limit) break;
@@ -186,6 +203,27 @@ export function listAwaitingPost(db: AppDatabase, limit: number): { type: Transa
       .all();
     out.push(...rows.map((r) => ({ type, mobileUuid: r.u })));
   }
+  if (watchSince) {
+    const watched = {
+      harvest_ticket: harvestTicket,
+      spb,
+      fertilization_ticket: fertilizationTicket,
+      maintenance_ticket: maintenanceTicket,
+    } as const;
+    for (const type of Object.keys(watched) as (keyof typeof watched)[]) {
+      const table = watched[type];
+      const rows = db
+        .select({ u: table.mobileUuid, state: txDocument.state })
+        .from(table)
+        .leftJoin(txDocument, eq(txDocument.mobileUuid, table.mobileUuid))
+        .where(and(eq(table.status, 'posted'), gte(table.workDate, watchSince)))
+        .all();
+      for (const r of rows) {
+        if (out.length >= limit) break;
+        if (!r.state || !FINAL_DOCUMENT_STATES[type].includes(r.state)) out.push({ type, mobileUuid: r.u });
+      }
+    }
+  }
   return out;
 }
 
@@ -194,12 +232,14 @@ export interface StatusResult {
   status: 'accepted' | 'rejected' | 'posted' | 'unknown';
   reason?: string | null;
   posted_at?: string | null;
+  document?: TxDocument | null;
 }
 
 export function applyStatusResults(
   db: AppDatabase,
   awaiting: { type: TransactionType; mobileUuid: string }[],
   results: StatusResult[],
+  nowIso: string = new Date().toISOString(),
 ): { posted: number; rejected: number } {
   const typeOf = new Map(awaiting.map((a) => [a.mobileUuid, a.type]));
   let posted = 0;
@@ -208,6 +248,7 @@ export function applyStatusResults(
     for (const r of results) {
       const type = typeOf.get(r.mobile_uuid);
       if (!type) continue;
+      if (r.document) upsertDocument(tx as unknown as AppDatabase, r.mobile_uuid, r.document, nowIso);
       const table = transactionTables[type];
       const where = and(eq(table.mobileUuid, r.mobile_uuid), eq(table.status, 'accepted'));
       if (r.status === 'posted') {

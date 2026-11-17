@@ -16,6 +16,7 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { pendingInbox, type DecisionKind, type InboxRow } from '@/db/repositories/approval';
 import { decide } from '@/features/report/actions';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { spacing } from '@/theme';
@@ -31,11 +32,14 @@ const ICON: Record<string, string> = {
   assignment: 'clipboard-account',
   harvest_ticket: 'palm-tree',
   spb: 'truck',
+  fertilization_ticket: 'sack',
+  maintenance_ticket: 'sprout',
   upkeep: 'sprout',
   material_usage: 'flask',
 };
 
 export default function ApprovalScreen() {
+  const refresh = useRefresh();
   const services = useServices();
   const { db } = services;
   const items = useTableQuery(['approval_inbox', 'approval_decision'], () => pendingInbox(db));
@@ -61,7 +65,7 @@ export default function ApprovalScreen() {
   };
 
   return (
-    <Screen title={t('approval.title')} back>
+    <Screen refresh={refresh} title={t('approval.title')} back>
       <SectionTitle>{t('approval.inbox', { count: items.length })}</SectionTitle>
       {items.length === 0 ? (
         <Card padded>

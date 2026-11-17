@@ -9,6 +9,7 @@ import {
   potentialRestan,
   spbAfdelingCode,
   spbLines,
+  spbLoadLines,
   spbTotals,
   validateSpb,
   type SpbInput,
@@ -33,11 +34,24 @@ function setup() {
   return db;
 }
 
-const tk = (uuid: string = randomUUID(), no = 'AFD01-261018-CD34-0001'): SpbTicket => ({ uuid, ticketNo: no, blockCode: 'A01', tphCode: 'A01-T1', bunches: 20, estKg: 370 });
+const tk = (uuid: string = randomUUID(), no = 'AFD01-261018-CD34-0001'): SpbTicket => ({
+  uuid,
+  ticketNo: no,
+  blockCode: 'A01',
+  tphCode: 'A01-T1',
+  bunches: 20,
+  estKg: 370,
+  looseFruitKg: 2,
+  loadBunches: 20,
+  loadLooseKg: 2,
+});
 const input = (over: Partial<SpbInput> = {}): SpbInput => ({
   workDate: D,
   vehicleId: 1,
   driverName: 'Budi',
+  driverEmployeeId: null,
+  pksId: null,
+  transferPoint: null,
   destination: 'internal_mill',
   parentSpbUuid: null,
   tickets: [tk()],
@@ -98,5 +112,42 @@ describe('SPB', () => {
     const at = (h: string) => Date.parse(`2026-10-18T${h}:00+07:00`);
     expect(isAfterRestanCutoff(at('15:59'), 420, '16:00')).toBe(false);
     expect(isAfterRestanCutoff(at('16:00'), 420, '16:00')).toBe(true);
+  });
+
+  describe('struktur SPB ERP', () => {
+    const withErpMasters = () => {
+      const db = setup();
+      const page = masterResponseSchema.parse({
+        cursor: 'v3',
+        server_time: '2026-10-18T00:00:00Z',
+        changes: {
+          vehicle: { upserts: [{ id: 1, plate: 'BM 8101 AK', type: 'Dump Truck', ownership: 'own' }, { id: 2, plate: 'BM 7 SW', type: 'Colt', ownership: 'rental' }] },
+          employee: { upserts: [{ id: 30, nik: 'S1', name: 'Bambang', type: 'SKU', active: true, role: 'sopir' }] },
+          pks: { upserts: [{ id: 3, code: 'PKSSM', name: 'PKS Sei Meranti', estate_id: 1 }] },
+        },
+      });
+      applyMasterChanges(db, page.changes, page.cursor);
+      return db;
+    };
+
+    it('truk sendiri wajib sopir karyawan; truk sewa cukup nama; PKS wajib bila ada master PKS', () => {
+      const db = withErpMasters();
+      expect(validateSpb(db, input()).map((i) => i.code)).toEqual(['driver_employee_required', 'pks_required']);
+      expect(validateSpb(db, input({ driverEmployeeId: 10, pksId: 3 })).map((i) => i.code)).toEqual(['driver_employee_required']);
+      expect(validateSpb(db, input({ driverEmployeeId: 30, pksId: 3 }))).toEqual([]);
+      expect(validateSpb(db, input({ vehicleId: 2, driverName: ' ', pksId: 3 })).map((i) => i.code)).toEqual(['driver_required']);
+    });
+
+    it('muatan sebagian: total ikut muatan, baris menyimpan janjang & brondolan; muatan tidak valid ditolak', () => {
+      const db = withErpMasters();
+      const partial = { ...tk(), loadBunches: 15, loadLooseKg: 0 };
+      expect(spbTotals([partial])).toEqual({ totalBunch: 15, estKg: 277.5 });
+      const r = save(db, input({ driverEmployeeId: 30, pksId: 3, transferPoint: 'Simpang 3', tickets: [partial] }));
+      expect(spbLoadLines(db, r.mobileUuid)).toMatchObject([{ bunchCount: 15, looseFruitKg: 0 }]);
+      const bad = [{ ...tk(), loadBunches: 21 }, { ...tk(randomUUID(), 'AFD01-261018-CD34-0009'), loadBunches: 0, loadLooseKg: 0 }];
+      expect(validateSpb(db, input({ driverEmployeeId: 30, pksId: 3, tickets: bad }))).toEqual([
+        { code: 'load_invalid', tickets: ['AFD01-261018-CD34-0001', 'AFD01-261018-CD34-0009'] },
+      ]);
+    });
   });
 });

@@ -31,6 +31,8 @@ export const blockSchema = z.object({
   status: z.enum(['TM', 'TBM']),
   bjr_kg: z.number().nonnegative(),
   polygon_geojson: geojson,
+  /** Jumlah pokok blok: batas pokok dipupuk per tiket pemupukan (0/kosong = tidak dibatasi). */
+  tree_count: z.int().nonnegative().nullish(),
 });
 
 export const tphSchema = z.object({
@@ -53,6 +55,10 @@ export const employeeSchema = z.object({
     .regex(/^[0-9A-Fa-f]{8,20}$/)
     .nullish()
     .transform((v) => (v == null ? null : v.toUpperCase())),
+  /** Peran kebun di ERP (mis. 'pemanen', 'sopir'); sopir dipilih di SPB. */
+  role: z.string().nullish(),
+  /** Tipe karyawan ERP — penentu tarif panen (harvest_rate.employee_type). */
+  employee_type: z.string().nullish(),
 });
 
 export const gangSchema = z.object({
@@ -60,6 +66,8 @@ export const gangSchema = z.object({
   name: z.string().min(1),
   foreman_employee_id: id.nullish(),
   afdeling_id: id,
+  /** Jenis kemandoran ERP; tiket pemupukan hanya untuk kemandoran rawat. */
+  gang_type: z.enum(['panen', 'rawat']).nullish(),
 });
 
 export const activitySchema = z.object({
@@ -71,7 +79,19 @@ export const activitySchema = z.object({
   rate: z.number().nonnegative(),
 });
 
-export const productSchema = z.object({ id, name: z.string().min(1), uom: z.string().min(1) });
+export const productSchema = z.object({
+  id,
+  name: z.string().min(1),
+  uom: z.string().min(1),
+  /** Produk berkategori Pupuk ERP: dipilih di tiket pemupukan, bukan di material perawatan. */
+  is_fertilizer: z.boolean().nullish(),
+  /** Kelompok pupuk (Makro, Mikro, …): bersama metode dan kelas medan menentukan tarif upah. */
+  fertilizer_group_id: id.nullish(),
+  /** Dosis standar per pokok untuk satu kali aplikasi; kosong = tanpa batas dosis. */
+  dosage_kg_per_tree: z.number().nonnegative().nullish(),
+  /** Dosis standar material perawatan per Ha; kosong = tanpa batas dosis. */
+  dosage_per_ha: z.number().nonnegative().nullish(),
+});
 
 export const dosageRuleSchema = z.object({
   id,
@@ -81,8 +101,92 @@ export const dosageRuleSchema = z.object({
   tolerance_pct: z.number().nonnegative(),
 });
 
-export const vehicleSchema = z.object({ id, plate: z.string().min(1), type: z.string().min(1) });
+/** Angkutan TBS. Truk sendiri wajib sopir karyawan; truk sewa cukup nama sopir. */
+export const vehicleSchema = z.object({
+  id,
+  plate: z.string().min(1),
+  type: z.string().min(1),
+  ownership: z.enum(['own', 'rental']).nullish(),
+});
 
+/** Sub blok tiket panen; kelas medannya menentukan baris tarif panen. */
+export const subBlokSchema = z.object({
+  id,
+  code: z.string().min(1),
+  block_id: id,
+  terrain_class_id: id,
+});
+
+export const HARVEST_GRADES = ['ripe', 'unripe', 'rotten', 'empty_bunch', 'long_stalk', 'loose_fruit'] as const;
+
+export const harvestRateLineSchema = z.object({
+  grade: z.enum(HARVEST_GRADES),
+  line_type: z.enum(['premium', 'penalty']),
+  basis: z.enum(['per_bunch', 'per_kg']),
+  /** 'over_basis' dihitung per hari di ERP (premi lebih basis), bukan per tiket. */
+  scope: z.enum(['all', 'over_basis']),
+  terrain_class_id: id.nullish(),
+  amount: z.number().nonnegative(),
+});
+
+export const FERTILIZATION_METHODS = ['manual', 'mekanis', 'drone'] as const;
+
+/** Baris tarif pemupukan ERP; kolom kosong berlaku untuk semua nilai. */
+export const fertilizationRateLineSchema = z.object({
+  fertilizer_group_id: id.nullish(),
+  method: z.enum(FERTILIZATION_METHODS).nullish(),
+  terrain_class_id: id.nullish(),
+  basis: z.enum(['per_tree', 'per_kg']),
+  amount: z.number().nonnegative(),
+});
+
+/** Jenis perawatan ERP dan satuan hasil kerjanya (dasar upah). */
+export const MAINTENANCE_WORK_TYPES = [
+  'semprot_gulma',
+  'babat_gawangan',
+  'garuk_piringan',
+  'dongkel_anak_kayu',
+  'pruning',
+  'kastrasi',
+  'pengendalian_hama',
+  'perawatan_parit',
+  'lainnya',
+] as const;
+export type MaintenanceWorkType = (typeof MAINTENANCE_WORK_TYPES)[number];
+export const WORK_TYPE_UNITS: Readonly<Record<MaintenanceWorkType, 'ha' | 'tree' | 'hk'>> = {
+  semprot_gulma: 'ha',
+  babat_gawangan: 'ha',
+  garuk_piringan: 'tree',
+  dongkel_anak_kayu: 'ha',
+  pruning: 'tree',
+  kastrasi: 'tree',
+  pengendalian_hama: 'ha',
+  perawatan_parit: 'hk',
+  lainnya: 'hk',
+};
+
+/** Baris tarif perawatan ERP: per jenis perawatan, kelas medan kosong = semua. */
+export const maintenanceRateLineSchema = z.object({
+  work_type: z.enum(MAINTENANCE_WORK_TYPES),
+  terrain_class_id: id.nullish(),
+  amount: z.number().nonnegative(),
+});
+
+/** Tarif panen aktif ERP — sumber estimasi premi panen dan upah pemupukan/perawatan di HP (sama dengan tiket ERP). */
+export const harvestRateSchema = z.object({
+  id,
+  estate_id: id.nullish(),
+  employee_type: z.string().nullish(),
+  date_from: z.iso.date(),
+  date_to: z.iso.date().nullish(),
+  lines: z.array(harvestRateLineSchema),
+  fertilization_lines: z.array(fertilizationRateLineSchema).nullish(),
+  maintenance_lines: z.array(maintenanceRateLineSchema).nullish(),
+});
+
+export const pksSchema = z.object({ id, code: z.string().min(1), name: z.string().min(1), estate_id: id.nullish() });
+
+/** @deprecated Denda kini dari baris tarif panen (harvest_rate); dikirim ERP hanya untuk HP versi lama. */
 export const penaltyRuleSchema = z.object({
   id,
   code: z.string().min(1),
@@ -114,8 +218,10 @@ export const masterSchemas = {
   product: productSchema,
   dosage_rule: dosageRuleSchema,
   vehicle: vehicleSchema,
-  penalty_rule: penaltyRuleSchema,
   work_plan: workPlanSchema,
+  sub_blok: subBlokSchema,
+  harvest_rate: harvestRateSchema,
+  pks: pksSchema,
 } as const;
 
 export type MasterEntityName = keyof typeof masterSchemas;

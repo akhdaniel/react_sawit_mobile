@@ -163,6 +163,10 @@ function createServices(db: AppDatabase): AppServices {
           const u = useSession.getState().user;
           return u?.roles.includes('asisten') ? u.afdeling_ids : [];
         })(),
+        verificationEnabled: (() => {
+          const roles = useSession.getState().user?.roles ?? [];
+          return roles.includes('mandor_panen') || roles.includes('kerani_panen');
+        })(),
       });
       useSync.getState().setResult(result);
       return result;

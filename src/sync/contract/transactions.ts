@@ -4,11 +4,14 @@
  */
 import { z } from 'zod';
 
-import { isoDate } from './master';
+import { FERTILIZATION_METHODS, isoDate, MAINTENANCE_WORK_TYPES } from './master';
 
 const id = z.int().positive();
 const uuid = z.uuid();
 const count = z.int().nonnegative();
+
+/** Cuaca saat bekerja (sama dengan pilihan cuaca tiket kerja lapangan ERP). */
+export const WEATHERS = ['cerah', 'berawan', 'hujan_ringan', 'hujan_lebat'] as const;
 
 /** <kode_afdeling>-<yyMMdd>-<device_short>-<seq 4 digit> */
 export const DOC_NO_REGEX = /^[A-Z0-9]+-\d{6}-[A-Z0-9]{4}-\d{4}$/;
@@ -75,6 +78,14 @@ export const harvestTicketPayloadSchema = z.object({
   est_kg: z.number().nonnegative(),
   photo_id: uuid.nullable(),
   is_late_entry: z.boolean(),
+  /** Sub blok tiket (struktur tiket panen ERP). Opsional demi kompatibilitas HP lama. */
+  sub_blok_id: id.nullish(),
+});
+
+export const spbLineSchema = z.object({
+  ticket_uuid: uuid,
+  bunch_count: count,
+  loose_fruit_kg: z.number().nonnegative(),
 });
 
 export const spbPayloadSchema = z.object({
@@ -88,8 +99,54 @@ export const spbPayloadSchema = z.object({
   est_kg: z.number().nonnegative(),
   photo_ids: z.array(uuid).min(2, 'minimal 2 foto'),
   harvest_ticket_uuids: z.array(uuid).min(1),
+  pks_id: id.nullish(),
+  /** Sopir karyawan (truk sendiri); driver_name tetap diisi untuk cetak/arsip. */
+  driver_employee_id: id.nullish(),
+  /** Titik muat SPB induk, diisi saat membuat SPB langsir. */
+  transfer_point: z.string().nullish(),
+  /** Muatan per tiket seperti baris SPB ERP; janjang < tiket = sisanya restan. */
+  lines: z.array(spbLineSchema).nullish(),
 });
 
+/** Tiket pemupukan: satu pekerja per tiket, seperti tiket pemupukan ERP (nomor dibuat ERP saat posting). */
+export const fertilizationTicketPayloadSchema = z.object({
+  work_date: isoDate,
+  block_id: id,
+  sub_blok_id: id.nullable(),
+  /** Kemandoran rawat yang mengawasi pekerja hari itu. */
+  gang_id: id,
+  worker_employee_id: id,
+  product_id: id,
+  method: z.enum(FERTILIZATION_METHODS),
+  application_round: z.int().positive().nullable(),
+  tree_count: z.int().positive(),
+  qty_kg: z.number().positive(),
+  weather: z.enum(WEATHERS).nullable(),
+  notes: z.string().nullable(),
+});
+
+export const maintenanceMaterialSchema = z.object({ product_id: id, qty: z.number().positive() });
+
+/**
+ * Tiket perawatan: satu pekerja per tiket, material sebagai baris tiket, seperti tiket perawatan ERP
+ * (nomor dibuat ERP saat posting). Hasil kerja diisi sesuai satuan jenis perawatan (Ha / pokok / HK).
+ */
+export const maintenanceTicketPayloadSchema = z.object({
+  work_date: isoDate,
+  block_id: id,
+  sub_blok_id: id.nullable(),
+  gang_id: id,
+  worker_employee_id: id,
+  work_type: z.enum(MAINTENANCE_WORK_TYPES),
+  area_ha: z.number().nonnegative(),
+  tree_count: count,
+  hk: z.number().nonnegative(),
+  weather: z.enum(WEATHERS).nullable(),
+  notes: z.string().nullable(),
+  materials: z.array(maintenanceMaterialSchema),
+});
+
+/** @deprecated Diganti tiket perawatan (maintenance_ticket); tetap untuk transaksi lama yang belum terkirim. */
 export const upkeepPayloadSchema = z.object({
   work_date: isoDate,
   activity_id: id,
@@ -130,15 +187,33 @@ export const approvalDecisionPayloadSchema = z.object({
   corrected_json: z.record(z.string(), z.unknown()).nullable(),
 });
 
+/**
+ * Tombol Lanjutkan tiket panen: tiket ERP maju satu tahap atas nama pengirim. Targetnya salah satu: tiket dari
+ * HP ini (`target_uuid`) atau tiket ERP dari antrean verifikasi (`core_ticket_id`). Bila tahap berikutnya
+ * bukan milik pengirim (kerani sebelum verifikasi mandor), server menundanya sampai giliran pengirim.
+ */
+export const stageConfirmPayloadSchema = z
+  .object({
+    target_type: z.enum(['harvest_ticket']),
+    target_uuid: uuid.nullable(),
+    core_ticket_id: id.nullable(),
+  })
+  .refine((p) => (p.target_uuid == null) !== (p.core_ticket_id == null), {
+    message: 'isi salah satu dari target_uuid atau core_ticket_id',
+  });
+
 export const txPayloadSchemas = {
   attendance: attendancePayloadSchema,
   assignment: assignmentPayloadSchema,
   harvest_ticket: harvestTicketPayloadSchema,
   spb: spbPayloadSchema,
+  fertilization_ticket: fertilizationTicketPayloadSchema,
+  maintenance_ticket: maintenanceTicketPayloadSchema,
   upkeep: upkeepPayloadSchema,
   material_usage: materialUsagePayloadSchema,
   daily_report: dailyReportPayloadSchema,
   approval_decision: approvalDecisionPayloadSchema,
+  stage_confirm: stageConfirmPayloadSchema,
 } as const;
 
 export type TxTypeName = keyof typeof txPayloadSchemas;
@@ -153,10 +228,13 @@ export const txItemSchema = z.discriminatedUnion('type', [
   itemOf('assignment'),
   itemOf('harvest_ticket'),
   itemOf('spb'),
+  itemOf('fertilization_ticket'),
+  itemOf('maintenance_ticket'),
   itemOf('upkeep'),
   itemOf('material_usage'),
   itemOf('daily_report'),
   itemOf('approval_decision'),
+  itemOf('stage_confirm'),
 ]);
 export type TxItem = z.infer<typeof txItemSchema>;
 

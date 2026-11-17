@@ -205,13 +205,24 @@ export class Store {
     return this.nextServerId++;
   }
 
+  /** Tiruan dokumen ERP hasil posting: tiket panen/pemupukan/perawatan draft (menunggu verifikasi kerani), SPB berangkat. */
+  documentOf(item: TxItem) {
+    if (item.type === 'harvest_ticket') return { name: item.payload.ticket_no, state: 'draft', state_label: 'Draft', net_kg: null };
+    if (item.type === 'spb') return { name: item.payload.spb_no, state: 'departed', state_label: 'Berangkat', net_kg: null };
+    if (item.type === 'fertilization_ticket' || item.type === 'maintenance_ticket') {
+      const prefix = item.type === 'fertilization_ticket' ? 'PPK' : 'PRW';
+      return { name: `${prefix}-${item.mobile_uuid.slice(0, 8).toUpperCase()}`, state: 'draft', state_label: 'Draft', net_kg: null };
+    }
+    return null;
+  }
+
   serverStatus(uuid: string) {
     const tx = this.transactions.get(uuid);
     if (!tx) return { mobile_uuid: uuid, status: 'unknown' as const, reason: null, posted_at: null };
     if (tx.status === 'rejected') return { mobile_uuid: uuid, status: 'rejected' as const, reason: tx.reason, posted_at: null };
     const postedAt = tx.receivedAt + this.opts.postDelayMs;
     if (this.opts.now() >= postedAt) {
-      return { mobile_uuid: uuid, status: 'posted' as const, reason: null, posted_at: new Date(postedAt).toISOString() };
+      return { mobile_uuid: uuid, status: 'posted' as const, reason: null, posted_at: new Date(postedAt).toISOString(), document: this.documentOf(tx.item) };
     }
     return { mobile_uuid: uuid, status: 'accepted' as const, reason: null, posted_at: null };
   }
