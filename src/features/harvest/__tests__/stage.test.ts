@@ -1,13 +1,19 @@
 import { eq } from 'drizzle-orm';
 
 import { collectOutbox } from '@/db/repositories/outbox';
-import { latestConfirmFor, pendingVerifications, replaceVerificationQueue } from '@/db/repositories/verification';
-import { harvestTicket, stageConfirm } from '@/db/schema';
+import {
+  latestConfirmFor,
+  pendingFertilizationVerifications,
+  pendingVerificationCount,
+  pendingVerifications,
+  replaceVerificationQueue,
+} from '@/db/repositories/verification';
+import { fertilizationTicket, harvestTicket, stageConfirm } from '@/db/schema';
 import type { TxContext } from '@/features/common/tx-factory';
 import { continueQueued, continueTicket } from '@/features/harvest/stage';
-import type { VerificationItem } from '@/sync/contract';
+import type { FertilizationVerificationItem, VerificationItem } from '@/sync/contract';
 import { createTestDb } from '@/test/db';
-import { harvestTicketRow, uuid } from '@/test/fixtures';
+import { fertilizationTicketRow, harvestTicketRow, uuid } from '@/test/fixtures';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => jest.requireActual('node:crypto').randomUUID() }));
 
@@ -41,6 +47,25 @@ const queued = (core_ticket_id: number, mobile_uuid: string | null = null): Veri
   has_photo: false,
   mobile_uuid,
   created_by: 'Kerani',
+});
+
+const fertilizationQueued = (core_ticket_id: number, mobile_uuid: string | null = null): FertilizationVerificationItem => ({
+  core_ticket_id,
+  name: `PPK/2026/${core_ticket_id}`,
+  work_date: '2026-10-18',
+  stage: 'Verifikasi Mandor',
+  block_code: 'B1',
+  sub_blok_name: null,
+  worker_id: 11,
+  worker_name: 'Pekerja Rawat',
+  gang_name: 'Rawat 1',
+  fertilizer_name: 'Urea',
+  method: 'manual',
+  application_round: 1,
+  tree_count: 100,
+  qty_kg: 150,
+  mobile_uuid,
+  created_by: 'Mandor Rawat',
 });
 
 describe('Lanjutkan tiket dari HP ini', () => {
@@ -84,7 +109,7 @@ describe('Lanjutkan tiket dari HP ini', () => {
 describe('antrean verifikasi', () => {
   it('Lanjutkan dari antrean merujuk tiket ERP dan menghapusnya dari antrean', () => {
     const { db } = createTestDb();
-    replaceVerificationQueue(db, [queued(1), queued(2)], '2026-10-18T03:00:00.000Z');
+    replaceVerificationQueue(db, [queued(1), queued(2)], [], '2026-10-18T03:00:00.000Z');
     expect(continueQueued(db, ctx, 3)).toEqual({ ok: false, code: 'unknown_target' });
     expect(continueQueued(db, ctx, 1).ok).toBe(true);
     expect(continueQueued(db, ctx, 1)).toEqual({ ok: false, code: 'already_continued' });
@@ -97,8 +122,48 @@ describe('antrean verifikasi', () => {
     const { db } = createTestDb();
     const ticket = harvestTicketRow({ status: 'posted' });
     db.insert(harvestTicket).values(ticket).run();
-    replaceVerificationQueue(db, [queued(1, ticket.mobileUuid)], '2026-10-18T03:00:00.000Z');
+    replaceVerificationQueue(db, [queued(1, ticket.mobileUuid)], [], '2026-10-18T03:00:00.000Z');
     continueTicket(db, ctx, ticket.mobileUuid);
     expect(pendingVerifications(db)).toEqual([]);
+  });
+});
+
+describe('Lanjutkan tiket pemupukan', () => {
+  it('Simpan & Lanjutkan: stage_confirm pemupukan dikirim sesudah tiketnya', () => {
+    const { db } = createTestDb();
+    const ticket = fertilizationTicketRow();
+    db.insert(fertilizationTicket).values(ticket).run();
+    expect(continueTicket(db, ctx, ticket.mobileUuid, 'fertilization_ticket').ok).toBe(true);
+    expect(continueTicket(db, ctx, ticket.mobileUuid, 'fertilization_ticket')).toEqual({ ok: false, code: 'already_continued' });
+    // Tiket pemupukan bukan tiket panen: uuid-nya tidak dikenal sebagai tiket panen.
+    expect(continueTicket(db, ctx, ticket.mobileUuid)).toEqual({ ok: false, code: 'unknown_target' });
+    const { entries, invalid } = collectOutbox(db, 50, '1.0.0');
+    expect(invalid).toEqual([]);
+    expect(entries.map((e) => e.type)).toEqual(['fertilization_ticket', 'stage_confirm']);
+    expect(entries[1]!.item.payload).toEqual({ target_type: 'fertilization_ticket', target_uuid: ticket.mobileUuid, core_ticket_id: null });
+  });
+
+  it('tiket pemupukan yang sudah dikoreksi tidak bisa dilanjutkan', () => {
+    const { db } = createTestDb();
+    const original = fertilizationTicketRow({ status: 'posted' });
+    db.insert(fertilizationTicket).values(original).run();
+    db.insert(fertilizationTicket).values(fertilizationTicketRow({ correctionOf: original.mobileUuid })).run();
+    expect(continueTicket(db, ctx, original.mobileUuid, 'fertilization_ticket')).toEqual({ ok: false, code: 'ticket_corrected' });
+  });
+
+  it('antrean panen dan pemupukan terpisah walau id tiket ERP sama', () => {
+    const { db } = createTestDb();
+    replaceVerificationQueue(db, [queued(1)], [fertilizationQueued(1), fertilizationQueued(2)], '2026-10-18T03:00:00.000Z');
+    expect(pendingVerificationCount(db)).toBe(3);
+    expect(continueQueued(db, ctx, 1, 'fertilization_ticket').ok).toBe(true);
+    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
+    expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(continueQueued(db, ctx, 1)).toEqual({ ok: true, mobileUuid: expect.any(String) });
+    expect(continueQueued(db, ctx, 3, 'fertilization_ticket')).toEqual({ ok: false, code: 'unknown_target' });
+    const { entries } = collectOutbox(db, 50, '1.0.0');
+    expect(entries.map((e) => e.item.payload)).toEqual([
+      { target_type: 'fertilization_ticket', target_uuid: null, core_ticket_id: 1 },
+      { target_type: 'harvest_ticket', target_uuid: null, core_ticket_id: 1 },
+    ]);
   });
 });

@@ -5,7 +5,7 @@
 import { eq } from 'drizzle-orm';
 
 import type { TxDocument } from '../../sync/contract';
-import { txDocument } from '../schema';
+import { transactionTables, txDocument } from '../schema';
 import type { AppDatabase } from '../types';
 
 /** Status ERP yang tidak berubah lagi: berhenti ditanyakan ke server. */
@@ -40,4 +40,13 @@ export function upsertDocument(db: AppDatabase, mobileUuid: string, doc: TxDocum
     .values({ mobileUuid, ...values })
     .onConflictDoUpdate({ target: txDocument.mobileUuid, set: values })
     .run();
+}
+
+/** Alasan gagal posting ke ERP untuk transaksi yang masih diterima (null bila tidak ada). */
+export function postErrorOf(db: AppDatabase, mobileUuid: string): string | null {
+  for (const table of Object.values(transactionTables)) {
+    const row = db.select({ s: table.status, r: table.rejectReason }).from(table).where(eq(table.mobileUuid, mobileUuid)).get();
+    if (row) return row.s === 'accepted' ? row.r : null;
+  }
+  return null;
 }

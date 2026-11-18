@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { harvestTicket } from '@/db/schema';
+import type { fertilizationTicket, harvestTicket } from '@/db/schema';
 
 export const uuid = () => randomUUID();
 
@@ -36,6 +36,22 @@ export function harvestTicketRow(overrides: Partial<typeof harvestTicket.$inferI
     status: 'queued' as const,
     ...overrides,
   } satisfies typeof harvestTicket.$inferInsert;
+}
+
+export function fertilizationTicketRow(overrides: Partial<typeof fertilizationTicket.$inferInsert> = {}) {
+  return {
+    ...txCommon(),
+    workDate: '2026-10-18',
+    blockId: 1,
+    gangId: 2,
+    workerEmployeeId: 11,
+    productId: 30,
+    method: 'manual' as const,
+    treeCount: 100,
+    qtyKg: 150,
+    status: 'queued' as const,
+    ...overrides,
+  } satisfies typeof fertilizationTicket.$inferInsert;
 }
 
 export function attendanceRow(overrides: Record<string, unknown> = {}) {

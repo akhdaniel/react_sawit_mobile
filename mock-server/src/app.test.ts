@@ -427,6 +427,41 @@ describe('tiket pemupukan', () => {
       ['accepted', 'accepted', 'over_dose', 'gang_not_rawat', 'unknown_fertilizer'],
     );
   });
+
+  it('tiket mandor rawat muncul di antrean kerani rawat; Lanjutkan pemupukan menghapusnya', async () => {
+    const mandor = await login('mandor.rawat');
+    const kerani = await login('kerani.rawat');
+    assert.deepEqual(kerani.user.roles, ['kerani_rawat']);
+    const tk = fertilization(mandor.user.id);
+    const go = {
+      type: 'stage_confirm',
+      mobile_uuid: randomUUID(),
+      meta: meta(mandor.user.id),
+      payload: { target_type: 'fertilization_ticket', target_uuid: tk.mobile_uuid, core_ticket_id: null },
+    };
+    const sent = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [checkIn(mandor.user.id, 16, 4), tk, go] }, mandor.access_token)).json,
+    );
+    assert.deepEqual(sent.results.map((x) => x.status), ['accepted', 'accepted', 'accepted']);
+
+    const queue = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, kerani.access_token)).json);
+    assert.equal(queue.items.length, 0);
+    assert.equal(queue.fertilization_items.length, 1);
+    assert.equal(queue.fertilization_items[0]!.mobile_uuid, tk.mobile_uuid);
+    assert.equal(queue.fertilization_items[0]!.qty_kg, 125);
+
+    const wrongType = {
+      type: 'stage_confirm',
+      mobile_uuid: randomUUID(),
+      meta: meta(kerani.user.id),
+      payload: { target_type: 'harvest_ticket', target_uuid: tk.mobile_uuid, core_ticket_id: null },
+    };
+    const own = { ...wrongType, mobile_uuid: randomUUID(), payload: { ...wrongType.payload, target_type: 'fertilization_ticket', target_uuid: null, core_ticket_id: queue.fertilization_items[0]!.core_ticket_id } };
+    const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [wrongType, own] }, kerani.access_token)).json);
+    assert.deepEqual(r.results.map((x) => x.reason ?? x.status), ['target_type_mismatch', 'accepted']);
+    const after = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, kerani.access_token)).json);
+    assert.equal(after.fertilization_items.length, 0);
+  });
 });
 
 describe('tiket perawatan', () => {

@@ -20,6 +20,7 @@ import type { AppDatabase } from '../db/types';
 import { SessionService } from '../features/auth/session-service';
 import type { TxContext } from '../features/common/tx-factory';
 import { useSession } from '../features/auth/session-store';
+import { canAccess } from '../features/menu/menu';
 import { useSecurity } from '../features/security/security-store';
 import { useSync } from '../features/sync/sync-store';
 import { createSyncApi } from '../sync/api';
@@ -165,7 +166,7 @@ function createServices(db: AppDatabase): AppServices {
         })(),
         verificationEnabled: (() => {
           const roles = useSession.getState().user?.roles ?? [];
-          return roles.includes('mandor_panen') || roles.includes('kerani_panen');
+          return canAccess('verification', roles);
         })(),
       });
       useSync.getState().setResult(result);

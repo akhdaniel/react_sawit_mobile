@@ -187,14 +187,19 @@ export const approvalDecisionPayloadSchema = z.object({
   corrected_json: z.record(z.string(), z.unknown()).nullable(),
 });
 
+/** Tiket yang tahapnya bisa dilanjutkan dari HP (tombol Lanjutkan). */
+export const STAGE_TARGET_TYPES = ['harvest_ticket', 'fertilization_ticket'] as const;
+export type StageTargetType = (typeof STAGE_TARGET_TYPES)[number];
+
 /**
- * Tombol Lanjutkan tiket panen: tiket ERP maju satu tahap atas nama pengirim. Targetnya salah satu: tiket dari
- * HP ini (`target_uuid`) atau tiket ERP dari antrean verifikasi (`core_ticket_id`). Bila tahap berikutnya
- * bukan milik pengirim (kerani sebelum verifikasi mandor), server menundanya sampai giliran pengirim.
+ * Tombol Lanjutkan tiket panen/pemupukan: tiket ERP maju satu tahap atas nama pengirim. Targetnya salah satu:
+ * tiket dari HP ini (`target_uuid`) atau tiket ERP dari antrean verifikasi (`core_ticket_id`, id tiket inti
+ * sesuai `target_type`). Bila tahap berikutnya bukan milik pengirim (kerani sebelum verifikasi mandor), server
+ * menundanya sampai giliran pengirim.
  */
 export const stageConfirmPayloadSchema = z
   .object({
-    target_type: z.enum(['harvest_ticket']),
+    target_type: z.enum(STAGE_TARGET_TYPES),
     target_uuid: uuid.nullable(),
     core_ticket_id: id.nullable(),
   })

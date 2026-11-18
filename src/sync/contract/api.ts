@@ -4,14 +4,14 @@
  */
 import { z } from 'zod';
 
-import { MASTER_ENTITY_NAMES, masterSchemas, workPlanSchema, type MasterEntityName } from './master';
+import { FERTILIZATION_METHODS, MASTER_ENTITY_NAMES, masterSchemas, workPlanSchema, type MasterEntityName } from './master';
 import { MAX_TX_BATCH, TX_TYPE_NAMES, txItemSchema } from './transactions';
 
 const id = z.int().positive();
 const uuid = z.uuid();
 export const serverTime = z.iso.datetime({ offset: true });
 
-export const ROLES = ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_transport', 'asisten'] as const;
+export const ROLES = ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat', 'kerani_transport', 'asisten'] as const;
 export const roleSchema = z.enum(ROLES);
 export type Role = z.infer<typeof roleSchema>;
 
@@ -108,6 +108,8 @@ export const transactionStatusResponseSchema = z.object({
       status: txServerStatus,
       reason: z.string().nullish(),
       posted_at: serverTime.nullish(),
+      /** Diterima tetapi gagal diposting ke ERP (dicoba ulang server); alasan untuk pengguna. */
+      post_error: z.string().nullish(),
       /** Dokumen ERP hasil posting (tiket panen / SPB): nomor, status, netto timbang. */
       document: txDocumentSchema.nullish(),
     }),
@@ -172,7 +174,31 @@ export const verificationItemSchema = z.object({
   created_by: z.string().nullable(),
 });
 export type VerificationItem = z.infer<typeof verificationItemSchema>;
-export const verificationsResponseSchema = z.object({ items: z.array(verificationItemSchema), server_time: serverTime });
+/** Tiket pemupukan ERP yang menunggu Lanjutkan (mandor rawat, lalu kerani rawat). */
+export const fertilizationVerificationItemSchema = z.object({
+  core_ticket_id: id,
+  name: z.string(),
+  work_date: z.string(),
+  stage: z.string().nullable(),
+  block_code: z.string(),
+  sub_blok_name: z.string().nullable(),
+  worker_id: id,
+  worker_name: z.string(),
+  gang_name: z.string().nullable(),
+  fertilizer_name: z.string(),
+  method: z.enum(FERTILIZATION_METHODS),
+  application_round: z.int().nonnegative().nullable(),
+  tree_count: z.int().nonnegative(),
+  qty_kg: z.number().nonnegative(),
+  mobile_uuid: uuid.nullable(),
+  created_by: z.string().nullable(),
+});
+export type FertilizationVerificationItem = z.infer<typeof fertilizationVerificationItemSchema>;
+export const verificationsResponseSchema = z.object({
+  items: z.array(verificationItemSchema),
+  fertilization_items: z.array(fertilizationVerificationItemSchema).default([]),
+  server_time: serverTime,
+});
 
 // ---- Device --------------------------------------------------------------
 export const heartbeatRequestSchema = z.object({

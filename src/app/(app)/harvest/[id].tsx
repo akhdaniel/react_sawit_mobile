@@ -144,7 +144,8 @@ export default function HarvestTicketScreen() {
       )}
       <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/harvest/entry/[id]', params: { id: tk.mobileUuid } })} />
       <Button kind="outline" icon="printer" label={t('harvest.print')} busy={printing} onPress={() => void print()} />
-      {!corrected && (
+      {/* Tiket yang sudah dimuat SPB tidak bisa dikoreksi (server menolak ticket_already_transported). */}
+      {!corrected && !tk.transported && (
         <Button
           kind={tk.status === 'rejected' ? 'primary' : 'outline'}
           icon="pencil"

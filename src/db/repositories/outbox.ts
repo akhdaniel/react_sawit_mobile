@@ -28,9 +28,10 @@ export const TX_PUSH_ORDER: readonly TransactionType[] = [
   'attendance',
   'assignment',
   'harvest_ticket',
+  'fertilization_ticket',
+  // Sesudah tiket panen dan pemupukan: Simpan & Lanjutkan merujuk tiket yang dikirim di batch yang sama.
   'stage_confirm',
   'spb',
-  'fertilization_ticket',
   'maintenance_ticket',
   'upkeep',
   'material_usage',
@@ -232,6 +233,7 @@ export interface StatusResult {
   status: 'accepted' | 'rejected' | 'posted' | 'unknown';
   reason?: string | null;
   posted_at?: string | null;
+  post_error?: string | null;
   document?: TxDocument | null;
 }
 
@@ -252,8 +254,11 @@ export function applyStatusResults(
       const table = transactionTables[type];
       const where = and(eq(table.mobileUuid, r.mobile_uuid), eq(table.status, 'accepted'));
       if (r.status === 'posted') {
-        tx.update(table).set({ status: 'posted', postedAt: r.posted_at ?? null }).where(where).run();
+        tx.update(table).set({ status: 'posted', postedAt: r.posted_at ?? null, rejectReason: null }).where(where).run();
         posted++;
+      } else if (r.status === 'accepted') {
+        // Gagal posting disimpan di kolom alasan selama masih diterima; hilang saat terposting.
+        tx.update(table).set({ rejectReason: r.post_error ?? null }).where(where).run();
       } else if (r.status === 'rejected') {
         tx.update(table).set({ status: 'rejected', rejectReason: r.reason ?? 'ditolak saat posting' }).where(where).run();
         rejected++;

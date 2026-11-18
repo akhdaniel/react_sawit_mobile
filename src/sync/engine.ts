@@ -2,7 +2,7 @@
  * Sync engine — SATU-SATUNYA tempat aplikasi memanggil API.
  *
  * Urutan: push transaksi → unggah foto → polling status → tarik master (delta cursor) →
- * rencana kerja hari ini → antrean approval (asisten) → antrean verifikasi tiket (mandor/kerani panen) → heartbeat. Push didahulukan agar data lapangan secepatnya keluar
+ * rencana kerja hari ini → antrean approval (asisten) → antrean verifikasi tiket (mandor/kerani panen dan rawat) → heartbeat. Push didahulukan agar data lapangan secepatnya keluar
  * dari HP. Error jaringan/autentikasi menghentikan langkah berikutnya; error server pada satu
  * langkah dicatat lalu langkah lain tetap dicoba.
  */
@@ -27,7 +27,7 @@ import {
 } from '../db/repositories/outbox';
 import type { AppDatabase } from '../db/types';
 import { AuthRequiredError } from './api-client';
-import type { MasterRecord, MasterResponse, TxItem, VerificationItem } from './contract';
+import type { FertilizationVerificationItem, MasterRecord, MasterResponse, TxItem, VerificationItem } from './contract';
 import { MAX_TX_BATCH } from './contract';
 import { ApiError, NetworkError } from './http';
 
@@ -39,7 +39,7 @@ export interface SyncApi {
   uploadPhoto(photo: PhotoRow): Promise<{ photo_id: number }>;
   heartbeat(body: { app_version: string; battery: number | null; pending_count: number; last_sync_at: string | null }): Promise<void>;
   getApprovals(afdelingId: number): Promise<{ items: InboxItem[] }>;
-  getVerifications(): Promise<{ items: VerificationItem[] }>;
+  getVerifications(): Promise<{ items: VerificationItem[]; fertilization_items: FertilizationVerificationItem[] }>;
 }
 
 export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'verifications' | 'heartbeat';
@@ -84,7 +84,7 @@ export interface SyncDeps {
   onStep?(step: SyncStep): void;
   /** Afdeling yang inbox approval-nya ditarik (hanya untuk peran asisten). */
   approvalAfdelingIds?: number[];
-  /** Tarik antrean verifikasi tiket panen (hanya untuk mandor panen / kerani panen). */
+  /** Tarik antrean verifikasi tiket panen/pemupukan (hanya untuk mandor dan kerani panen/rawat). */
   verificationEnabled?: boolean;
   batchSize?: number;
   statusChunk?: number;
@@ -223,8 +223,8 @@ async function pullApprovals(d: SyncDeps, r: SyncResult): Promise<void> {
 async function pullVerifications(d: SyncDeps, r: SyncResult): Promise<void> {
   if (!d.verificationEnabled) return;
   const res = await d.api.getVerifications();
-  replaceVerificationQueue(d.db, res.items, d.nowIso());
-  r.verifications = { items: res.items.length };
+  replaceVerificationQueue(d.db, res.items, res.fertilization_items, d.nowIso());
+  r.verifications = { items: res.items.length + res.fertilization_items.length };
 }
 
 async function sendHeartbeat(d: SyncDeps): Promise<void> {

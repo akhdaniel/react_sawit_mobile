@@ -9,7 +9,7 @@ import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
 import { getPendingSummary, PENDING_WATCH_TABLES } from '@/db/repositories/pending';
 import { useTableQuery } from '@/db/provider';
-import { pendingVerifications } from '@/db/repositories/verification';
+import { pendingVerificationCount } from '@/db/repositories/verification';
 import { useSession } from '@/features/auth/session-store';
 import { menuForRoles } from '@/features/menu/menu';
 import { useRefresh } from '@/features/sync/useRefresh';
@@ -23,7 +23,7 @@ export default function HomeScreen() {
   const user = useSession((s) => s.user);
   const items = user ? menuForRoles(user.roles) : [];
   const pending = useTableQuery(PENDING_WATCH_TABLES, () => getPendingSummary(db).total);
-  const toVerify = useTableQuery(['verification_queue', 'stage_confirm'], () => pendingVerifications(db).length);
+  const toVerify = useTableQuery(['verification_queue', 'fertilization_verification_queue', 'stage_confirm'], () => pendingVerificationCount(db));
   const badgeOf = (key: string) => {
     if (key === 'sync' && pending > 0) return String(pending);
     if (key === 'verification' && toVerify > 0) return String(toVerify);

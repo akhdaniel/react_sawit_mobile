@@ -233,8 +233,9 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
       const p = item.payload;
       const target = p.target_uuid
         ? store.transactions.get(p.target_uuid)
-        : [...store.transactions.values()].find((t) => t.item.type === 'harvest_ticket' && t.serverId === p.core_ticket_id);
+        : [...store.transactions.values()].find((t) => t.item.type === p.target_type && t.serverId === p.core_ticket_id);
       if (!target) return { ok: false, reason: 'target_not_found', flags };
+      if (target.item.type !== p.target_type) return { ok: false, reason: 'target_type_mismatch', flags };
       if (target.status === 'rejected') return { ok: false, reason: 'target_rejected', flags };
       return { ok: true, flags };
     }

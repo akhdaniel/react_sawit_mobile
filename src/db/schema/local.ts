@@ -78,3 +78,24 @@ export const verificationQueue = sqliteTable('verification_queue', {
   createdBy: text('created_by'),
   fetchedAt: text('fetched_at').notNull(),
 });
+
+/** Seperti verification_queue, untuk tiket pemupukan ERP (mandor rawat, lalu kerani rawat). */
+export const fertilizationVerificationQueue = sqliteTable('fertilization_verification_queue', {
+  coreTicketId: integer('core_ticket_id').primaryKey(),
+  name: text('name').notNull(),
+  workDate: text('work_date').notNull(),
+  stage: text('stage'),
+  blockCode: text('block_code').notNull(),
+  subBlokName: text('sub_blok_name'),
+  workerId: integer('worker_id').notNull(),
+  workerName: text('worker_name').notNull(),
+  gangName: text('gang_name'),
+  fertilizerName: text('fertilizer_name').notNull(),
+  method: text('method', { enum: ['manual', 'mekanis', 'drone'] }).notNull(),
+  applicationRound: integer('application_round'),
+  treeCount: integer('tree_count').notNull(),
+  qtyKg: real('qty_kg').notNull(),
+  mobileUuid: text('mobile_uuid'),
+  createdBy: text('created_by'),
+  fetchedAt: text('fetched_at').notNull(),
+});

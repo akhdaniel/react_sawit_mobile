@@ -127,6 +127,13 @@
       "when": 1794822727843,
       "tag": "0017_append_only_guards_v6",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794990954364,
+      "tag": "0018_fertilization_verification",
+      "breakpoints": true
     }
   ]
 }

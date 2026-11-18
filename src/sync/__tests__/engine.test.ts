@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
 
 import { pendingInbox } from '@/db/repositories/approval';
-import { pendingVerifications } from '@/db/repositories/verification';
+import { pendingFertilizationVerifications, pendingVerifications } from '@/db/repositories/verification';
 import { applyMasterChanges, getCursor } from '@/db/repositories/master';
 import { getMeta } from '@/db/repositories/meta';
 import { attendance, block, harvestTicket, photo, workPlan } from '@/db/schema';
 import { AuthRequiredError } from '@/sync/api-client';
-import type { MasterResponse, VerificationItem } from '@/sync/contract';
+import type { FertilizationVerificationItem, MasterResponse, VerificationItem } from '@/sync/contract';
 import { runSync, syncNow, type SyncApi, type SyncDeps } from '@/sync/engine';
 import { ApiError, NetworkError } from '@/sync/http';
 import { createTestDb } from '@/test/db';
@@ -35,6 +35,24 @@ const queued = (core_ticket_id: number): VerificationItem => ({
   has_photo: false,
   mobile_uuid: null,
   created_by: 'Kerani',
+});
+const fertilizationQueued = (core_ticket_id: number): FertilizationVerificationItem => ({
+  core_ticket_id,
+  name: `PPK/2026/${core_ticket_id}`,
+  work_date: '2026-10-18',
+  stage: 'Draft',
+  block_code: 'B1',
+  sub_blok_name: null,
+  worker_id: 8,
+  worker_name: 'Pekerja Rawat',
+  gang_name: null,
+  fertilizer_name: 'Urea',
+  method: 'manual',
+  application_round: 1,
+  tree_count: 100,
+  qty_kg: 150,
+  mobile_uuid: null,
+  created_by: 'Kerani Rawat',
 });
 const masterPage = (cursor: string, ids: number[], has_more = false): MasterResponse => ({
   cursor,
@@ -75,7 +93,7 @@ function fakeApi(over: Partial<SyncApi> = {}) {
     },
     async getVerifications() {
       calls.push('verifications');
-      return { items: [queued(1), queued(2)] };
+      return { items: [queued(1), queued(2)], fertilization_items: [fertilizationQueued(1)] };
     },
     ...over,
   };
@@ -128,17 +146,19 @@ describe('runSync', () => {
     expect(pendingInbox(db)).toHaveLength(1); // target sama → satu baris (afdeling terakhir)
   });
 
-  it('mandor/kerani panen: antrean verifikasi diganti dengan data server terbaru', async () => {
+  it('mandor/kerani: antrean verifikasi panen dan pemupukan diganti dengan data server terbaru', async () => {
     const { db } = createTestDb();
     const { api, calls } = fakeApi();
     const r = await runSync(deps(db, api, { verificationEnabled: true }));
     expect(calls).toContain('verifications');
-    expect(r.verifications).toEqual({ items: 2 });
+    expect(r.verifications).toEqual({ items: 3 });
     expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1, 2]);
+    expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
 
-    const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)] }) });
+    const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)], fertilization_items: [] }) });
     await runSync(deps(db, later.api, { verificationEnabled: true }));
     expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(pendingFertilizationVerifications(db)).toEqual([]);
   });
 
   it('peran lain: antrean verifikasi tidak ditarik', async () => {

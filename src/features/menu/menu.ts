@@ -39,13 +39,13 @@ export interface MenuItem {
 }
 
 export const MENU: readonly MenuItem[] = [
-  { key: 'attendance', icon: 'account-check', label: 'menu.attendance', roles: ['mandor_panen', 'mandor_rawat', 'kerani_panen'], stage: 4, route: '/attendance' },
+  { key: 'attendance', icon: 'account-check', label: 'menu.attendance', roles: ['mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'], stage: 4, route: '/attendance' },
   { key: 'assignment', icon: 'clipboard-account', label: 'menu.assignment', roles: ['mandor_panen', 'mandor_rawat'], stage: 4, route: '/assignment' },
   { key: 'harvest', icon: 'palm-tree', label: 'menu.harvest', roles: ['mandor_panen', 'kerani_panen'], stage: 5, route: '/harvest' },
-  { key: 'verification', icon: 'clipboard-check', label: 'menu.verification', roles: ['mandor_panen', 'kerani_panen'], stage: 5, route: '/verification' },
+  { key: 'verification', icon: 'clipboard-check', label: 'menu.verification', roles: ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat'], stage: 5, route: '/verification' },
   { key: 'transport', icon: 'truck', label: 'menu.transport', roles: ['kerani_transport'], stage: 6, route: '/transport' },
   { key: 'upkeep', icon: 'sprout', label: 'menu.upkeep', roles: ['mandor_rawat'], stage: 7, route: '/maintenance' },
-  { key: 'fertilization', icon: 'sack', label: 'menu.fertilization', roles: ['mandor_rawat'], stage: 7, route: '/fertilization' },
+  { key: 'fertilization', icon: 'sack', label: 'menu.fertilization', roles: ['mandor_rawat', 'kerani_rawat'], stage: 7, route: '/fertilization' },
   { key: 'approval', icon: 'check-decagram', label: 'menu.approval', roles: ['asisten'], stage: 8, route: '/approval' },
   { key: 'daily_report', icon: 'file-document-edit', label: 'menu.dailyReport', roles: ['mandor_panen', 'mandor_rawat', 'asisten'], stage: 8, route: '/daily-report' },
   { key: 'sync', icon: 'sync', label: 'menu.sync', roles: 'all', stage: 3, route: '/sync' },

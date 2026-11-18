@@ -11,7 +11,7 @@ import {
   markSent,
 } from '@/db/repositories/outbox';
 import { attendance, harvestTicket, photo, spb, spbLine } from '@/db/schema';
-import { getDocument } from '@/db/repositories/documents';
+import { getDocument, postErrorOf } from '@/db/repositories/documents';
 import { createTestDb } from '@/test/db';
 import { attendanceRow, harvestTicketRow, photoRow, txCommon, uuid } from '@/test/fixtures';
 
@@ -142,6 +142,17 @@ describe('outbox', () => {
     ]);
     expect(s).toEqual({ posted: 1, rejected: 1 });
     expect(listAwaitingPost(db, 10)).toHaveLength(0);
+  });
+
+  it('gagal posting tampil selama diterima dan hilang saat terposting', () => {
+    const { db } = createTestDb();
+    const a = harvestTicketRow({ status: 'accepted' });
+    db.insert(harvestTicket).values(a).run();
+    applyStatusResults(db, listAwaitingPost(db, 10), [{ mobile_uuid: a.mobileUuid, status: 'accepted', post_error: 'Tanggal tiket panen tidak boleh di masa depan.' }]);
+    expect(postErrorOf(db, a.mobileUuid)).toBe('Tanggal tiket panen tidak boleh di masa depan.');
+    applyStatusResults(db, listAwaitingPost(db, 10), [{ mobile_uuid: a.mobileUuid, status: 'posted', posted_at: '2026-10-18T10:00:00.000Z' }]);
+    expect(postErrorOf(db, a.mobileUuid)).toBeNull();
+    expect(db.select().from(harvestTicket).get()?.rejectReason).toBeNull();
   });
 
   it('dokumen ERP disimpan; tiket posted dipantau sampai status ERP akhir', () => {

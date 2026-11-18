@@ -276,6 +276,7 @@ export function buildSeed(today = jakartaDate()): { master: SeedMaster; users: S
     user(104, 'kerani.transport', 'Dedi Kurniawan', ['kerani_transport'], [1, 2, 3]),
     user(105, 'asisten', 'Ir. Hendra Gunawan', ['asisten'], [1]),
     user(106, 'asisten2', 'Siti Aminah', ['asisten'], [2, 3]),
+    user(107, 'kerani.rawat', 'Wulan Sari', ['kerani_rawat'], [1]),
   ];
 
   return {

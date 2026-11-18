@@ -4,7 +4,9 @@ import { StyleSheet, View } from 'react-native';
 import { Card, SectionTitle } from '@/components/Card';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { getDocument } from '@/db/repositories/documents';
+import { getDocument, postErrorOf } from '@/db/repositories/documents';
+import { TRANSACTION_TYPES } from '@/db/schema';
+import { reasonLabel } from '@/features/common/reason';
 import type { TxStatus } from '@/db/tx-status';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
@@ -13,11 +15,12 @@ import { colors, spacing } from '@/theme';
 export function DocumentStatus({ mobileUuid, status }: { mobileUuid: string; status: TxStatus }) {
   const { db } = useServices();
   const doc = useTableQuery(['tx_document', mobileUuid], () => getDocument(db, mobileUuid));
+  const postError = useTableQuery([...TRANSACTION_TYPES, mobileUuid], () => postErrorOf(db, mobileUuid));
   if (!doc) {
     if (status !== 'accepted' && status !== 'posted') return null;
     return (
-      <Txt variant="small" style={{ color: colors.textMuted }}>
-        {t('document.waiting')}
+      <Txt variant="small" style={{ color: postError ? colors.danger : colors.textMuted }}>
+        {postError ? t('document.postError', { reason: reasonLabel(postError) }) : t('document.waiting')}
       </Txt>
     );
   }
