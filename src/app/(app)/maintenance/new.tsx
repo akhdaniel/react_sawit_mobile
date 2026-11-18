@@ -2,7 +2,8 @@
  * Tiket perawatan baru (struktur tiket perawatan ERP, satu pekerja per tiket):
  * kemandoran rawat → blok → sub blok → jenis perawatan → pekerja hadir → hasil kerja → material → Simpan.
  * Batas dosis material dan estimasi upah dari tarif ERP tampil live. "Simpan & pekerja berikutnya"
- * mempertahankan blok, jenis perawatan, dan material untuk pekerja berikutnya.
+ * mempertahankan blok, jenis perawatan, dan material untuk pekerja berikutnya. Mandor/kerani rawat bisa
+ * "Simpan & Lanjutkan": tiket langsung maju ke tahap verifikasinya saat sinkron.
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -23,7 +24,9 @@ import { subBloksOf } from '@/db/repositories/harvest';
 import { maintenanceEstimate, maintenanceMaterials, type MaintenanceTicketRow } from '@/db/repositories/maintenance';
 import { block, employee, maintenanceTicket, type MaintenanceMaterial } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
+import { useRawatVerifier } from '@/features/entry/StageContinue';
 import { formatRupiah } from '@/features/harvest/calc';
+import { continueTicket } from '@/features/harvest/stage';
 import { saveMaintenanceTicket } from '@/features/maintenance/actions';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
@@ -38,6 +41,7 @@ export default function NewMaintenanceTicketScreen() {
   const workDate = clock.workDate();
   const { correctionOf } = useLocalSearchParams<{ correctionOf?: string }>();
   const afdelingIds = useSession((s) => s.user?.afdeling_ids ?? []);
+  const verifier = useRawatVerifier();
 
   const original = useMemo(
     () =>
@@ -104,7 +108,8 @@ export default function NewMaintenanceTicketScreen() {
   const setQty = (productId: number, qty: number) =>
     setMaterials((ms) => ms.map((m) => (m.product_id === productId ? { ...m, qty: Math.max(0, qty) } : m)));
 
-  const save = async (next: boolean) => {
+  /** `next`: tetap di form untuk pekerja berikutnya. `andContinue`: Simpan & Lanjutkan. */
+  const save = async (next: boolean, andContinue = false) => {
     if (!effGangId || !effBlockId || !workerId) return;
     setBusy(true);
     try {
@@ -128,6 +133,7 @@ export default function NewMaintenanceTicketScreen() {
         Alert.alert(t('maintenance.title'), r.issues.map((i) => `• ${t(`maintenance.error.${i}`)}`).join('\n'));
         return;
       }
+      if (andContinue) continueTicket(db, ctx, r.mobileUuid, 'maintenance_ticket');
       if (next) {
         const name = workers.find((w) => w.id === workerId)?.name ?? '';
         setWorkerId(null);
@@ -318,7 +324,17 @@ export default function NewMaintenanceTicketScreen() {
       {!original && (
         <Button kind="outline" icon="account-arrow-right" label={t('maintenance.saveNext')} busy={busy} disabled={!canSave} onPress={() => void save(true)} />
       )}
-      <Button icon="content-save" label={t('maintenance.save')} busy={busy} disabled={!canSave} onPress={() => void save(false)} />
+      <Button
+        kind={verifier ? 'outline' : 'primary'}
+        icon="content-save"
+        label={t('maintenance.save')}
+        busy={busy}
+        disabled={!canSave}
+        onPress={() => void save(false)}
+      />
+      {verifier && (
+        <Button icon="check-decagram" label={t('harvest.saveContinue')} busy={busy} disabled={!canSave} onPress={() => void save(false, true)} />
+      )}
     </Screen>
   );
 }

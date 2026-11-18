@@ -29,10 +29,10 @@ export const TX_PUSH_ORDER: readonly TransactionType[] = [
   'assignment',
   'harvest_ticket',
   'fertilization_ticket',
-  // Sesudah tiket panen dan pemupukan: Simpan & Lanjutkan merujuk tiket yang dikirim di batch yang sama.
+  'maintenance_ticket',
+  // Sesudah tiket panen, pemupukan, dan perawatan: Simpan & Lanjutkan merujuk tiket yang dikirim di batch yang sama.
   'stage_confirm',
   'spb',
-  'maintenance_ticket',
   'upkeep',
   'material_usage',
   'daily_report',

@@ -1,5 +1,5 @@
 /**
- * Tiket Menunggu Verifikasi — tiket panen dan pemupukan ERP yang tahap berikutnya milik user ini (mandor:
+ * Tiket Menunggu Verifikasi — tiket panen, pemupukan, dan perawatan ERP yang tahap berikutnya milik user ini (mandor:
  * verifikasi mandor, kerani: verifikasi kerani), termasuk tiket dari HP lain. Bekerja offline dari antrean yang
  * ditarik saat sinkron; Lanjutkan disimpan sebagai transaksi stage_confirm dan dikirim saat sinkron.
  */
@@ -16,21 +16,25 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import {
   pendingFertilizationVerifications,
+  pendingMaintenanceVerifications,
   pendingVerifications,
   type FertilizationVerificationRow,
+  type MaintenanceVerificationRow,
   type VerificationRow,
 } from '@/db/repositories/verification';
 import { continueQueued } from '@/features/harvest/stage';
 import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
+import type { MaintenanceWorkType } from '@/sync/contract';
 import { colors, spacing } from '@/theme';
 
 const bunches = (r: VerificationRow) => r.ripe + r.unripe + r.rotten;
 
 type Open =
   | { type: 'harvest_ticket'; row: VerificationRow }
-  | { type: 'fertilization_ticket'; row: FertilizationVerificationRow };
+  | { type: 'fertilization_ticket'; row: FertilizationVerificationRow }
+  | { type: 'maintenance_ticket'; row: MaintenanceVerificationRow };
 
 function harvestRows(r: VerificationRow): [string, string][] {
   return [
@@ -61,6 +65,20 @@ function fertilizationRows(r: FertilizationVerificationRow): [string, string][] 
   ];
 }
 
+function maintenanceRows(r: MaintenanceVerificationRow): [string, string][] {
+  return [
+    [t('verification.stage'), r.stage ?? '—'],
+    [t('fertilization.block'), r.subBlokName ? `${r.blockCode} / ${r.subBlokName}` : r.blockCode],
+    [t('maintenance.workType'), t(`maintenance.workTypes.${r.workType as MaintenanceWorkType}`)],
+    [t('maintenance.areaHa'), String(r.areaHa)],
+    [t('maintenance.trees'), String(r.treeCount)],
+    [t('maintenance.hk'), String(r.hk)],
+    ...r.materials.map((m) => [`${t('verification.materials')} · ${m.name}`, `${m.qty} ${m.uom}`] as [string, string]),
+    ...(r.gangName ? [[t('verification.gang'), r.gangName] as [string, string]] : []),
+    ...(r.createdBy ? [[t('verification.createdBy'), r.createdBy] as [string, string]] : []),
+  ];
+}
+
 export default function VerificationScreen() {
   const refresh = useRefresh();
   const services = useServices();
@@ -69,6 +87,8 @@ export default function VerificationScreen() {
   const fertilization = useTableQuery(['fertilization_verification_queue', 'stage_confirm'], () =>
     pendingFertilizationVerifications(db),
   );
+  const maintenance = useTableQuery(['maintenance_verification_queue', 'stage_confirm'], () => pendingMaintenanceVerifications(db));
+  const total = harvest.length + fertilization.length + maintenance.length;
   const [open, setOpen] = useState<Open | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -88,7 +108,13 @@ export default function VerificationScreen() {
     }
   };
 
-  const rows = !open ? [] : open.type === 'harvest_ticket' ? harvestRows(open.row) : fertilizationRows(open.row);
+  const rows = !open
+    ? []
+    : open.type === 'harvest_ticket'
+      ? harvestRows(open.row)
+      : open.type === 'fertilization_ticket'
+        ? fertilizationRows(open.row)
+        : maintenanceRows(open.row);
   const title = !open
     ? ''
     : `${open.row.name} · ${open.type === 'harvest_ticket' ? open.row.harvesterName : open.row.workerName}`;
@@ -96,8 +122,8 @@ export default function VerificationScreen() {
   return (
     <Screen refresh={refresh} title={t('verification.title')} back>
       <Txt style={{ color: colors.textMuted }}>{t('verification.hint')}</Txt>
-      <SectionTitle>{t('verification.count', { count: harvest.length + fertilization.length })}</SectionTitle>
-      {harvest.length + fertilization.length === 0 && (
+      <SectionTitle>{t('verification.count', { count: total })}</SectionTitle>
+      {total === 0 && (
         <Card padded>
           <Txt>{t('verification.empty')}</Txt>
         </Card>
@@ -133,6 +159,24 @@ export default function VerificationScreen() {
                 description={`${i.workDate} · ${t('fertilization.block')} ${i.blockCode} · ${i.fertilizerName} · ${i.qtyKg} kg · ${i.stage ?? ''}`}
                 last={n === fertilization.length - 1}
                 onPress={() => setOpen({ type: 'fertilization_ticket', row: i })}
+              />
+            ))}
+          </Card>
+        </>
+      )}
+      {maintenance.length > 0 && (
+        <>
+          <SectionTitle>{t('verification.maintenance')}</SectionTitle>
+          <Card>
+            {maintenance.map((i, n) => (
+              <ListRow
+                key={i.coreTicketId}
+                icon="sprout"
+                tone="accent"
+                label={`${i.name} · ${i.workerName}`}
+                description={`${i.workDate} · ${t('fertilization.block')} ${i.blockCode} · ${t(`maintenance.workTypes.${i.workType as MaintenanceWorkType}`)} · ${i.stage ?? ''}`}
+                last={n === maintenance.length - 1}
+                onPress={() => setOpen({ type: 'maintenance_ticket', row: i })}
               />
             ))}
           </Card>

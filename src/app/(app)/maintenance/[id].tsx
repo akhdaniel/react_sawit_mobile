@@ -1,4 +1,4 @@
-/** Tiket perawatan tersimpan (append-only): rincian, material & dosis, estimasi upah, dokumen ERP, koreksi. */
+/** Tiket perawatan tersimpan (append-only): rincian, material & dosis, estimasi upah, dokumen ERP, Lanjutkan, koreksi. */
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { Button } from '@/components/Button';
@@ -11,6 +11,7 @@ import { useTableQuery } from '@/db/provider';
 import { canCorrectMaintenance, maintenanceEstimate, maintenanceView } from '@/db/repositories/maintenance';
 import { DocumentStatus } from '@/features/entry/DocumentStatus';
 import { SavedEntryNotice } from '@/features/entry/SavedEntryNotice';
+import { ContinueButton, ContinuePill, useDocumentVerified } from '@/features/entry/StageContinue';
 import { formatRupiah } from '@/features/harvest/calc';
 import type { MaintenanceWorkType } from '@/sync/contract';
 import { useRefresh } from '@/features/sync/useRefresh';
@@ -28,6 +29,8 @@ export default function MaintenanceTicketScreen() {
   const estimate = useTableQuery(['maintenance_ticket', 'harvest_rate', 'product', 'block', 'sub_blok', 'employee'], () =>
     tk ? maintenanceEstimate(db, { ...tk, workType: tk.workType as MaintenanceWorkType }) : null,
   );
+  // Material sudah keluar dari gudang: koreksi dari HP ditolak server (ticket_already_verified).
+  const verified = useDocumentVerified(id);
 
   if (!tk || !estimate) {
     return (
@@ -41,6 +44,7 @@ export default function MaintenanceTicketScreen() {
     <Screen refresh={refresh} title={tk.workerName} subtitle={fresh ? t('maintenance.saved') : tk.workDate} back>
       <SavedEntryNotice status={tk.status} savedAt={tk.createdTrustedAt}>
         {corrected && <StatusPill label={t('maintenance.correctedBy')} tone="danger" />}
+        <ContinuePill ticketUuid={tk.mobileUuid} />
       </SavedEntryNotice>
       {tk.status === 'rejected' && tk.rejectReason && (
         <Card padded style={{ borderWidth: 2, borderColor: colors.danger }}>
@@ -83,7 +87,8 @@ export default function MaintenanceTicketScreen() {
 
       <DocumentStatus mobileUuid={tk.mobileUuid} status={tk.status} />
 
-      {!corrected && (
+      <ContinueButton type="maintenance_ticket" ticketUuid={tk.mobileUuid} />
+      {!corrected && !verified && (
         <Button
           kind={tk.status === 'rejected' ? 'primary' : 'outline'}
           icon="pencil"

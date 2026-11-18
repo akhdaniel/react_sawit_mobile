@@ -25,8 +25,8 @@ lalu dikirim ke Xerpium ERP (Odoo) saat sinkron.
 |---|---|---|
 | Mandor panen | Absen & tugaskan pemanen, buat dan verifikasi tiket panen, laporan harian | Absensi, Penugasan, Panen, Verifikasi tiket, Laporan harian, Sinkron |
 | Kerani panen | Catat hasil panen per TPH, verifikasi tiket panen, bantu absensi | Absensi, Panen, Verifikasi tiket, Sinkron |
-| Mandor rawat | Absen & tugaskan pekerja rawat, buat tiket pemupukan dan tiket perawatan, verifikasi tiket pemupukan, laporan harian | Absensi, Penugasan, Verifikasi tiket, Pemupukan, Perawatan, Laporan harian, Sinkron |
-| Kerani rawat | Catat dan verifikasi tiket pemupukan, bantu absensi | Absensi, Verifikasi tiket, Pemupukan, Sinkron |
+| Mandor rawat | Absen & tugaskan pekerja rawat, buat dan verifikasi tiket pemupukan dan tiket perawatan, laporan harian | Absensi, Penugasan, Verifikasi tiket, Pemupukan, Perawatan, Laporan harian, Sinkron |
+| Kerani rawat | Catat dan verifikasi tiket pemupukan dan tiket perawatan, bantu absensi | Absensi, Verifikasi tiket, Pemupukan, Perawatan, Sinkron |
 | Kerani transport | Buat SPB angkut TBS ke PKS (scan QR tiket) | Transport / SPB, Sinkron |
 | Asisten | Setujui / tolak / minta koreksi item yang ditandai, laporan harian | Persetujuan, Laporan harian, Sinkron |
 
@@ -168,15 +168,14 @@ Rincian lain bersifat opsional: mentah, busuk, janjang kosong, tangkai panjang, 
 
 ### 4.3a Verifikasi tiket (mandor dan kerani panen/rawat)
 
-Menu **Verifikasi tiket** berisi tiket panen dan tiket pemupukan ERP yang tahap berikutnya milik Anda, **termasuk
+Menu **Verifikasi tiket** berisi tiket panen, tiket pemupukan, dan tiket perawatan ERP yang tahap berikutnya milik Anda, **termasuk
 tiket dari HP lain** atau yang diinput di ERP (7 hari terakhir), dikelompokkan per jenis tiket:
 - **Mandor** (panen/rawat): tiket Draft dari kemandoran Anda, misalnya tiket yang diinput kerani.
-- **Kerani** (panen/rawat): tiket yang sudah diverifikasi mandor. Tiket pemupukan diverifikasi **kerani rawat**,
-  bukan kerani panen.
+- **Kerani** (panen/rawat): tiket yang sudah diverifikasi mandor. Tiket pemupukan dan perawatan diverifikasi
+  **kerani rawat**, bukan kerani panen.
 
-Ketuk tiket untuk melihat rinciannya (janjang dan brondolan, atau pupuk, pokok, dan kg; serta siapa yang
-menginput), lalu **Lanjutkan**. Antrean
-diperbarui setiap sinkron dan bisa dipakai tanpa sinyal; angka di menu beranda = jumlah tiket yang menunggu.
+Ketuk tiket untuk melihat rinciannya (janjang dan brondolan; pupuk, pokok, dan kg; atau jenis perawatan, hasil
+kerja, dan material; serta siapa yang menginput), lalu **Lanjutkan**. Antrean diperbarui setiap sinkron dan bisa dipakai tanpa sinyal; angka di menu beranda = jumlah tiket yang menunggu.
 Bila ada yang salah, jangan Lanjutkan — minta penginput membuat **Koreksi tiket**.
 
 ### 4.4 Transport / SPB (kerani transport)
@@ -201,7 +200,7 @@ Menu **Transport / SPB → SPB baru**.
 - Tiket hari ini yang belum masuk SPB adalah **potensi restan**. Peringatannya berubah merah setelah jam batas (default 16:00).
 - Struk SPB bisa dicetak beserta QR-nya.
 
-### 4.5 Tiket perawatan (mandor rawat)
+### 4.5 Tiket perawatan (mandor rawat, kerani rawat)
 
 Menu **Perawatan → Tiket perawatan baru**. Satu tiket untuk satu pekerja, sama seperti tiket perawatan di ERP.
 
@@ -215,11 +214,17 @@ Menu **Perawatan → Tiket perawatan baru**. Satu tiket untuk satu pekerja, sama
    × luas. Material berdosis butuh luas diisi. Material yang **melebihi dosis tidak bisa disimpan**, karena ERP
    juga tidak akan bisa memverifikasinya. Pupuk dicatat di menu **Pemupukan**.
 6. Cuaca dan catatan opsional. Estimasi upah dihitung dari tarif perawatan ERP.
-7. **Simpan & pekerja berikutnya** mempertahankan blok, jenis perawatan, dan material; atau **Simpan tiket**.
+7. **Simpan & pekerja berikutnya** mempertahankan blok, jenis perawatan, dan material; **Simpan tiket** untuk
+   selesai; atau **Simpan & Lanjutkan** untuk menyimpan sekaligus memverifikasi.
 
-Setelah sinkron, tiket masuk ERP sebagai tiket perawatan **Draft** beserta materialnya. Nomor dan status ERP
-tampil di detail tiket. Verifikasi, pengeluaran material dari gudang, dan upah diproses di ERP. Salah input?
-Buka tiket lalu **Koreksi tiket**.
+Setelah sinkron, tiket masuk ERP sebagai tiket perawatan **Draft** beserta materialnya. Nomor, status, dan tahap
+ERP tampil di detail tiket. Verifikasinya sama seperti tiket pemupukan (lihat 4.5a): Draft → **Verifikasi
+Mandor** (mandor rawat) → **Verifikasi Kerani** (kerani rawat; Terverifikasi), lewat tombol **Lanjutkan** di
+detail tiket atau di menu **Verifikasi tiket**. Saat Verifikasi Kerani, **semua material keluar dari gudang** dan
+upah dibekukan, jadi stok setiap material harus cukup dan tarif perawatan harus aktif.
+
+Salah input? Buka tiket lalu **Koreksi tiket**, selama tiket belum Terverifikasi. Setelah material keluar gudang,
+tombol Koreksi hilang dan perbaikannya lewat asisten di ERP.
 
 ### 4.5a Tiket pemupukan (mandor rawat, kerani rawat)
 

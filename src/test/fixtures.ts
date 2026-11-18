@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { fertilizationTicket, harvestTicket } from '@/db/schema';
+import type { fertilizationTicket, harvestTicket, maintenanceTicket } from '@/db/schema';
 
 export const uuid = () => randomUUID();
 
@@ -105,4 +105,21 @@ export function seedMaster(db: import('@/db/types').AppDatabase, workDate = '202
     },
   });
   applyMasterChanges(db, page.changes, page.cursor);
+}
+
+export function maintenanceTicketRow(overrides: Partial<typeof maintenanceTicket.$inferInsert> = {}) {
+  return {
+    ...txCommon(),
+    workDate: '2026-10-18',
+    blockId: 1,
+    gangId: 2,
+    workerEmployeeId: 11,
+    workType: 'semprot_gulma',
+    areaHa: 1.5,
+    treeCount: 0,
+    hk: 1,
+    materials: [{ product_id: 40, qty: 3 }],
+    status: 'queued' as const,
+    ...overrides,
+  } satisfies typeof maintenanceTicket.$inferInsert;
 }

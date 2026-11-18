@@ -99,3 +99,31 @@ export const fertilizationVerificationQueue = sqliteTable('fertilization_verific
   createdBy: text('created_by'),
   fetchedAt: text('fetched_at').notNull(),
 });
+
+/** Baris material tiket perawatan di antrean verifikasi (untuk ditampilkan saja). */
+export interface QueuedMaterial {
+  name: string;
+  qty: number;
+  uom: string;
+}
+
+/** Seperti verification_queue, untuk tiket perawatan ERP (mandor rawat, lalu kerani rawat). */
+export const maintenanceVerificationQueue = sqliteTable('maintenance_verification_queue', {
+  coreTicketId: integer('core_ticket_id').primaryKey(),
+  name: text('name').notNull(),
+  workDate: text('work_date').notNull(),
+  stage: text('stage'),
+  blockCode: text('block_code').notNull(),
+  subBlokName: text('sub_blok_name'),
+  workerId: integer('worker_id').notNull(),
+  workerName: text('worker_name').notNull(),
+  gangName: text('gang_name'),
+  workType: text('work_type').notNull(),
+  areaHa: real('area_ha').notNull(),
+  treeCount: integer('tree_count').notNull(),
+  hk: real('hk').notNull(),
+  materials: text('materials', { mode: 'json' }).$type<QueuedMaterial[]>().notNull(),
+  mobileUuid: text('mobile_uuid'),
+  createdBy: text('created_by'),
+  fetchedAt: text('fetched_at').notNull(),
+});

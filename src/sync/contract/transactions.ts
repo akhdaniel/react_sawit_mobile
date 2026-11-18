@@ -188,11 +188,11 @@ export const approvalDecisionPayloadSchema = z.object({
 });
 
 /** Tiket yang tahapnya bisa dilanjutkan dari HP (tombol Lanjutkan). */
-export const STAGE_TARGET_TYPES = ['harvest_ticket', 'fertilization_ticket'] as const;
+export const STAGE_TARGET_TYPES = ['harvest_ticket', 'fertilization_ticket', 'maintenance_ticket'] as const;
 export type StageTargetType = (typeof STAGE_TARGET_TYPES)[number];
 
 /**
- * Tombol Lanjutkan tiket panen/pemupukan: tiket ERP maju satu tahap atas nama pengirim. Targetnya salah satu:
+ * Tombol Lanjutkan tiket panen/pemupukan/perawatan: tiket ERP maju satu tahap atas nama pengirim. Targetnya salah satu:
  * tiket dari HP ini (`target_uuid`) atau tiket ERP dari antrean verifikasi (`core_ticket_id`, id tiket inti
  * sesuai `target_type`). Bila tahap berikutnya bukan milik pengirim (kerani sebelum verifikasi mandor), server
  * menundanya sampai giliran pengirim.

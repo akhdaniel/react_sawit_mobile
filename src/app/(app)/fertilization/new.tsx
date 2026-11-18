@@ -23,6 +23,7 @@ import { fertilizationEstimate, fertilizers, rawatGangs, type FertilizationTicke
 import { subBloksOf } from '@/db/repositories/harvest';
 import { block, employee, fertilizationTicket } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
+import { useRawatVerifier } from '@/features/entry/StageContinue';
 import { saveFertilizationTicket } from '@/features/fertilization/actions';
 import { continueTicket } from '@/features/harvest/stage';
 import type { FertilizationMethod } from '@/features/fertilization/calc';
@@ -40,7 +41,7 @@ export default function NewFertilizationTicketScreen() {
   const workDate = clock.workDate();
   const { correctionOf } = useLocalSearchParams<{ correctionOf?: string }>();
   const afdelingIds = useSession((s) => s.user?.afdeling_ids ?? []);
-  const verifier = useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_rawat' || r === 'kerani_rawat'));
+  const verifier = useRawatVerifier();
 
   const original = useMemo(
     () =>

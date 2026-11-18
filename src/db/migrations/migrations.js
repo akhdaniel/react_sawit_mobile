@@ -20,6 +20,7 @@ import m0015 from './0015_reset_master_cursor_maintenance.sql';
 import m0016 from './0016_stage_confirm.sql';
 import m0017 from './0017_append_only_guards_v6.sql';
 import m0018 from './0018_fertilization_verification.sql';
+import m0019 from './0019_maintenance_verification.sql';
 
   export default {
     journal,
@@ -42,7 +43,8 @@ m0014,
 m0015,
 m0016,
 m0017,
-m0018
+m0018,
+m0019
     }
   }
   

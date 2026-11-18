@@ -4,16 +4,17 @@ import { collectOutbox } from '@/db/repositories/outbox';
 import {
   latestConfirmFor,
   pendingFertilizationVerifications,
+  pendingMaintenanceVerifications,
   pendingVerificationCount,
   pendingVerifications,
   replaceVerificationQueue,
 } from '@/db/repositories/verification';
-import { fertilizationTicket, harvestTicket, stageConfirm } from '@/db/schema';
+import { fertilizationTicket, harvestTicket, maintenanceTicket, stageConfirm } from '@/db/schema';
 import type { TxContext } from '@/features/common/tx-factory';
 import { continueQueued, continueTicket } from '@/features/harvest/stage';
-import type { FertilizationVerificationItem, VerificationItem } from '@/sync/contract';
+import type { FertilizationVerificationItem, MaintenanceVerificationItem, VerificationItem } from '@/sync/contract';
 import { createTestDb } from '@/test/db';
-import { fertilizationTicketRow, harvestTicketRow, uuid } from '@/test/fixtures';
+import { fertilizationTicketRow, harvestTicketRow, maintenanceTicketRow, uuid } from '@/test/fixtures';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => jest.requireActual('node:crypto').randomUUID() }));
 
@@ -68,6 +69,31 @@ const fertilizationQueued = (core_ticket_id: number, mobile_uuid: string | null 
   created_by: 'Mandor Rawat',
 });
 
+const maintenanceQueued = (core_ticket_id: number): MaintenanceVerificationItem => ({
+  core_ticket_id,
+  name: `PRW/2026/${core_ticket_id}`,
+  work_date: '2026-10-18',
+  stage: 'Draft',
+  block_code: 'B1',
+  sub_blok_name: null,
+  worker_id: 11,
+  worker_name: 'Pekerja Rawat',
+  gang_name: 'Rawat 1',
+  work_type: 'semprot_gulma',
+  area_ha: 1.5,
+  tree_count: 0,
+  hk: 1,
+  materials: [{ name: 'Glifosat', qty: 3, uom: 'L' }],
+  mobile_uuid: null,
+  created_by: 'Kerani Rawat',
+});
+
+const queue = (
+  items: VerificationItem[],
+  fertilization_items: FertilizationVerificationItem[] = [],
+  maintenance_items: MaintenanceVerificationItem[] = [],
+) => ({ items, fertilization_items, maintenance_items });
+
 describe('Lanjutkan tiket dari HP ini', () => {
   it('menyimpan stage_confirm yang dikirim sesudah tiketnya', () => {
     const { db } = createTestDb();
@@ -109,7 +135,7 @@ describe('Lanjutkan tiket dari HP ini', () => {
 describe('antrean verifikasi', () => {
   it('Lanjutkan dari antrean merujuk tiket ERP dan menghapusnya dari antrean', () => {
     const { db } = createTestDb();
-    replaceVerificationQueue(db, [queued(1), queued(2)], [], '2026-10-18T03:00:00.000Z');
+    replaceVerificationQueue(db, queue([queued(1), queued(2)]), '2026-10-18T03:00:00.000Z');
     expect(continueQueued(db, ctx, 3)).toEqual({ ok: false, code: 'unknown_target' });
     expect(continueQueued(db, ctx, 1).ok).toBe(true);
     expect(continueQueued(db, ctx, 1)).toEqual({ ok: false, code: 'already_continued' });
@@ -122,7 +148,7 @@ describe('antrean verifikasi', () => {
     const { db } = createTestDb();
     const ticket = harvestTicketRow({ status: 'posted' });
     db.insert(harvestTicket).values(ticket).run();
-    replaceVerificationQueue(db, [queued(1, ticket.mobileUuid)], [], '2026-10-18T03:00:00.000Z');
+    replaceVerificationQueue(db, queue([queued(1, ticket.mobileUuid)]), '2026-10-18T03:00:00.000Z');
     continueTicket(db, ctx, ticket.mobileUuid);
     expect(pendingVerifications(db)).toEqual([]);
   });
@@ -151,19 +177,43 @@ describe('Lanjutkan tiket pemupukan', () => {
     expect(continueTicket(db, ctx, original.mobileUuid, 'fertilization_ticket')).toEqual({ ok: false, code: 'ticket_corrected' });
   });
 
-  it('antrean panen dan pemupukan terpisah walau id tiket ERP sama', () => {
+  it('antrean panen, pemupukan, dan perawatan terpisah walau id tiket ERP sama', () => {
     const { db } = createTestDb();
-    replaceVerificationQueue(db, [queued(1)], [fertilizationQueued(1), fertilizationQueued(2)], '2026-10-18T03:00:00.000Z');
-    expect(pendingVerificationCount(db)).toBe(3);
+    replaceVerificationQueue(
+      db,
+      queue([queued(1)], [fertilizationQueued(1), fertilizationQueued(2)], [maintenanceQueued(1)]),
+      '2026-10-18T03:00:00.000Z',
+    );
+    expect(pendingVerificationCount(db)).toBe(4);
     expect(continueQueued(db, ctx, 1, 'fertilization_ticket').ok).toBe(true);
     expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
     expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
     expect(continueQueued(db, ctx, 1)).toEqual({ ok: true, mobileUuid: expect.any(String) });
     expect(continueQueued(db, ctx, 3, 'fertilization_ticket')).toEqual({ ok: false, code: 'unknown_target' });
+    expect(pendingMaintenanceVerifications(db).map((v) => [v.coreTicketId, v.materials])).toEqual([
+      [1, [{ name: 'Glifosat', qty: 3, uom: 'L' }]],
+    ]);
+    expect(continueQueued(db, ctx, 1, 'maintenance_ticket').ok).toBe(true);
+    expect(pendingVerificationCount(db)).toBe(1);
     const { entries } = collectOutbox(db, 50, '1.0.0');
     expect(entries.map((e) => e.item.payload)).toEqual([
       { target_type: 'fertilization_ticket', target_uuid: null, core_ticket_id: 1 },
       { target_type: 'harvest_ticket', target_uuid: null, core_ticket_id: 1 },
+      { target_type: 'maintenance_ticket', target_uuid: null, core_ticket_id: 1 },
     ]);
+  });
+});
+
+describe('Lanjutkan tiket perawatan', () => {
+  it('Simpan & Lanjutkan: stage_confirm perawatan dikirim sesudah tiketnya', () => {
+    const { db } = createTestDb();
+    const ticket = maintenanceTicketRow();
+    db.insert(maintenanceTicket).values(ticket).run();
+    expect(continueTicket(db, ctx, ticket.mobileUuid, 'maintenance_ticket').ok).toBe(true);
+    expect(continueTicket(db, ctx, ticket.mobileUuid, 'fertilization_ticket')).toEqual({ ok: false, code: 'unknown_target' });
+    const { entries, invalid } = collectOutbox(db, 50, '1.0.0');
+    expect(invalid).toEqual([]);
+    expect(entries.map((e) => e.type)).toEqual(['maintenance_ticket', 'stage_confirm']);
+    expect(entries[1]!.item.payload).toEqual({ target_type: 'maintenance_ticket', target_uuid: ticket.mobileUuid, core_ticket_id: null });
   });
 });

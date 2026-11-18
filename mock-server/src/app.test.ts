@@ -502,6 +502,39 @@ describe('tiket perawatan', () => {
       ['accepted', 'accepted', 'over_dose', 'invalid_work_qty', 'accepted'],
     );
   });
+
+  it('tiket mandor rawat muncul di antrean perawatan kerani rawat beserta materialnya', async () => {
+    const mandor = await login('mandor.rawat');
+    const kerani = await login('kerani.rawat');
+    const tk = maintenance(mandor.user.id);
+    const go = {
+      type: 'stage_confirm',
+      mobile_uuid: randomUUID(),
+      meta: meta(mandor.user.id),
+      payload: { target_type: 'maintenance_ticket', target_uuid: tk.mobile_uuid, core_ticket_id: null },
+    };
+    const sent = transactionsResponseSchema.parse(
+      (await call('POST', '/transactions', { items: [checkIn(mandor.user.id, 16, 4), tk, go] }, mandor.access_token)).json,
+    );
+    assert.deepEqual(sent.results.map((x) => x.status), ['accepted', 'accepted', 'accepted']);
+
+    const queue = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, kerani.access_token)).json);
+    assert.equal(queue.maintenance_items.length, 1);
+    const item = queue.maintenance_items[0]!;
+    assert.equal(item.mobile_uuid, tk.mobile_uuid);
+    assert.deepEqual(item.materials.map((m) => m.qty), [3]);
+
+    const own = {
+      type: 'stage_confirm',
+      mobile_uuid: randomUUID(),
+      meta: meta(kerani.user.id),
+      payload: { target_type: 'maintenance_ticket', target_uuid: null, core_ticket_id: item.core_ticket_id },
+    };
+    const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items: [own] }, kerani.access_token)).json);
+    assert.equal(r.results[0]!.status, 'accepted');
+    const after = verificationsResponseSchema.parse((await call('GET', '/verifications', undefined, kerani.access_token)).json);
+    assert.equal(after.maintenance_items.length, 0);
+  });
 });
 
 describe('foto', () => {

@@ -215,7 +215,7 @@ export function createApp(store: Store) {
   });
 
   // ---- Verifikasi tiket --------------------------------------------------
-  // Mock tanpa tahap ERP: antrean = tiket panen/pemupukan user lain di afdeling user yang belum dilanjutkan
+  // Mock tanpa tahap ERP: antrean = tiket panen/pemupukan/perawatan user lain di afdeling user yang belum dilanjutkan
   // user ini (id tiket ERP = server_id transaksi, unik per jenis tiket).
   api.get('/verifications', requireAuth, (req, res) => {
     const { user } = (req as Authed).session;
@@ -228,7 +228,7 @@ export function createApp(store: Store) {
       const p = t.item.payload;
       continued.add(`${p.target_type}:${p.target_uuid ?? p.core_ticket_id}`);
     }
-    const waiting = (type: 'harvest_ticket' | 'fertilization_ticket') =>
+    const waiting = (type: 'harvest_ticket' | 'fertilization_ticket' | 'maintenance_ticket') =>
       [...store.transactions.values()]
         .filter((t) => t.item.type === type && t.status === 'accepted' && t.userId !== user.id)
         .filter((t) => !continued.has(`${type}:${t.item.mobile_uuid}`) && !continued.has(`${type}:${t.serverId}`))
@@ -289,7 +289,33 @@ export function createApp(store: Store) {
         created_by: createdBy(t.userId),
       };
     });
-    res.json({ items, fertilization_items: fertilizationItems });
+    const maintenanceItems = waiting('maintenance_ticket').map((t) => {
+      const p = (t.item as Extract<TxItem, { type: 'maintenance_ticket' }>).payload;
+      const block = store.getMaster<{ id: number; code: string }>('block', p.block_id);
+      const worker = store.getMaster<{ id: number; name: string }>('employee', p.worker_employee_id);
+      return {
+        core_ticket_id: t.serverId!,
+        name: `PRW/${p.work_date}/${t.serverId}`,
+        work_date: p.work_date,
+        stage: 'Draft',
+        block_code: block?.code ?? '',
+        sub_blok_name: null,
+        worker_id: p.worker_employee_id,
+        worker_name: worker?.name ?? `#${p.worker_employee_id}`,
+        gang_name: null,
+        work_type: p.work_type,
+        area_ha: p.area_ha,
+        tree_count: p.tree_count,
+        hk: p.hk,
+        materials: p.materials.map((m) => {
+          const product = store.getMaster<{ id: number; name: string; uom: string }>('product', m.product_id);
+          return { name: product?.name ?? `#${m.product_id}`, qty: m.qty, uom: product?.uom ?? '' };
+        }),
+        mobile_uuid: t.item.mobile_uuid,
+        created_by: createdBy(t.userId),
+      };
+    });
+    res.json({ items, fertilization_items: fertilizationItems, maintenance_items: maintenanceItems });
   });
 
   // ---- Device ------------------------------------------------------------

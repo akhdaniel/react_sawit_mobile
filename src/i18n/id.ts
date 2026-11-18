@@ -545,9 +545,11 @@ export const id = {
   },
   verification: {
     title: 'Verifikasi tiket',
-    hint: 'Tiket panen dan pemupukan yang tahap berikutnya milik Anda, termasuk tiket dari HP lain. Diperbarui setiap sinkron.',
+    hint: 'Tiket panen, pemupukan, dan perawatan yang tahap berikutnya milik Anda, termasuk tiket dari HP lain. Diperbarui setiap sinkron.',
     harvest: 'Tiket panen',
     fertilization: 'Tiket pemupukan',
+    maintenance: 'Tiket perawatan',
+    materials: 'Material',
     count: '{count} tiket menunggu',
     empty: 'Tidak ada tiket yang menunggu Lanjutkan dari Anda. Sinkron untuk memperbarui antrean.',
     stage: 'Tahap sekarang',
@@ -567,7 +569,7 @@ export const id = {
     target_type_mismatch: 'Jenis tiket tidak sesuai',
     ticket_already_transported: 'Tiket asal sudah dimuat SPB — koreksi tidak bisa; hubungi asisten',
     superseded: 'Sudah digantikan tiket koreksi',
-    ticket_already_verified: 'Tiket asal sudah diverifikasi kerani (pupuk sudah keluar gudang) — koreksi lewat asisten',
+    ticket_already_verified: 'Tiket asal sudah diverifikasi kerani (pupuk/material sudah keluar gudang) — koreksi lewat asisten',
   },
   report: {
     title: 'Laporan harian',

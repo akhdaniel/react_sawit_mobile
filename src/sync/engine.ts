@@ -27,7 +27,7 @@ import {
 } from '../db/repositories/outbox';
 import type { AppDatabase } from '../db/types';
 import { AuthRequiredError } from './api-client';
-import type { FertilizationVerificationItem, MasterRecord, MasterResponse, TxItem, VerificationItem } from './contract';
+import type { MasterRecord, MasterResponse, TxItem, VerificationsResponse } from './contract';
 import { MAX_TX_BATCH } from './contract';
 import { ApiError, NetworkError } from './http';
 
@@ -39,7 +39,7 @@ export interface SyncApi {
   uploadPhoto(photo: PhotoRow): Promise<{ photo_id: number }>;
   heartbeat(body: { app_version: string; battery: number | null; pending_count: number; last_sync_at: string | null }): Promise<void>;
   getApprovals(afdelingId: number): Promise<{ items: InboxItem[] }>;
-  getVerifications(): Promise<{ items: VerificationItem[]; fertilization_items: FertilizationVerificationItem[] }>;
+  getVerifications(): Promise<Pick<VerificationsResponse, 'items' | 'fertilization_items' | 'maintenance_items'>>;
 }
 
 export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'verifications' | 'heartbeat';
@@ -84,7 +84,7 @@ export interface SyncDeps {
   onStep?(step: SyncStep): void;
   /** Afdeling yang inbox approval-nya ditarik (hanya untuk peran asisten). */
   approvalAfdelingIds?: number[];
-  /** Tarik antrean verifikasi tiket panen/pemupukan (hanya untuk mandor dan kerani panen/rawat). */
+  /** Tarik antrean verifikasi tiket panen/pemupukan/perawatan (hanya untuk mandor dan kerani panen/rawat). */
   verificationEnabled?: boolean;
   batchSize?: number;
   statusChunk?: number;
@@ -223,8 +223,8 @@ async function pullApprovals(d: SyncDeps, r: SyncResult): Promise<void> {
 async function pullVerifications(d: SyncDeps, r: SyncResult): Promise<void> {
   if (!d.verificationEnabled) return;
   const res = await d.api.getVerifications();
-  replaceVerificationQueue(d.db, res.items, res.fertilization_items, d.nowIso());
-  r.verifications = { items: res.items.length + res.fertilization_items.length };
+  replaceVerificationQueue(d.db, res, d.nowIso());
+  r.verifications = { items: res.items.length + res.fertilization_items.length + res.maintenance_items.length };
 }
 
 async function sendHeartbeat(d: SyncDeps): Promise<void> {

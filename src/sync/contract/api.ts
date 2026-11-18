@@ -4,7 +4,14 @@
  */
 import { z } from 'zod';
 
-import { FERTILIZATION_METHODS, MASTER_ENTITY_NAMES, masterSchemas, workPlanSchema, type MasterEntityName } from './master';
+import {
+  FERTILIZATION_METHODS,
+  MAINTENANCE_WORK_TYPES,
+  MASTER_ENTITY_NAMES,
+  masterSchemas,
+  workPlanSchema,
+  type MasterEntityName,
+} from './master';
 import { MAX_TX_BATCH, TX_TYPE_NAMES, txItemSchema } from './transactions';
 
 const id = z.int().positive();
@@ -194,11 +201,33 @@ export const fertilizationVerificationItemSchema = z.object({
   created_by: z.string().nullable(),
 });
 export type FertilizationVerificationItem = z.infer<typeof fertilizationVerificationItemSchema>;
+/** Tiket perawatan ERP yang menunggu Lanjutkan (mandor rawat, lalu kerani rawat), dengan baris materialnya. */
+export const maintenanceVerificationItemSchema = z.object({
+  core_ticket_id: id,
+  name: z.string(),
+  work_date: z.string(),
+  stage: z.string().nullable(),
+  block_code: z.string(),
+  sub_blok_name: z.string().nullable(),
+  worker_id: id,
+  worker_name: z.string(),
+  gang_name: z.string().nullable(),
+  work_type: z.enum(MAINTENANCE_WORK_TYPES),
+  area_ha: z.number().nonnegative(),
+  tree_count: z.int().nonnegative(),
+  hk: z.number().nonnegative(),
+  materials: z.array(z.object({ name: z.string(), qty: z.number().nonnegative(), uom: z.string() })),
+  mobile_uuid: uuid.nullable(),
+  created_by: z.string().nullable(),
+});
+export type MaintenanceVerificationItem = z.infer<typeof maintenanceVerificationItemSchema>;
 export const verificationsResponseSchema = z.object({
   items: z.array(verificationItemSchema),
   fertilization_items: z.array(fertilizationVerificationItemSchema).default([]),
+  maintenance_items: z.array(maintenanceVerificationItemSchema).default([]),
   server_time: serverTime,
 });
+export type VerificationsResponse = z.infer<typeof verificationsResponseSchema>;
 
 // ---- Device --------------------------------------------------------------
 export const heartbeatRequestSchema = z.object({

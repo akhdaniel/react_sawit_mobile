@@ -258,7 +258,7 @@ export const stageConfirm = sqliteTable(
   'stage_confirm',
   {
     ...txColumns(),
-    targetType: text('target_type', { enum: ['harvest_ticket', 'fertilization_ticket'] }).notNull(),
+    targetType: text('target_type', { enum: ['harvest_ticket', 'fertilization_ticket', 'maintenance_ticket'] }).notNull(),
     targetUuid: text('target_uuid'),
     coreTicketId: integer('core_ticket_id'),
   },

@@ -93,7 +93,7 @@ function fakeApi(over: Partial<SyncApi> = {}) {
     },
     async getVerifications() {
       calls.push('verifications');
-      return { items: [queued(1), queued(2)], fertilization_items: [fertilizationQueued(1)] };
+      return { items: [queued(1), queued(2)], fertilization_items: [fertilizationQueued(1)], maintenance_items: [] };
     },
     ...over,
   };
@@ -155,7 +155,7 @@ describe('runSync', () => {
     expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1, 2]);
     expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
 
-    const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)], fertilization_items: [] }) });
+    const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)], fertilization_items: [], maintenance_items: [] }) });
     await runSync(deps(db, later.api, { verificationEnabled: true }));
     expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
     expect(pendingFertilizationVerifications(db)).toEqual([]);

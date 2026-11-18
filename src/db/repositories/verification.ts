@@ -1,5 +1,5 @@
 /**
- * Lanjutkan tahap tiket panen/pemupukan: antrean "Tiket Menunggu Verifikasi" (cache server) + transaksi
+ * Lanjutkan tahap tiket panen/pemupukan/perawatan: antrean "Tiket Menunggu Verifikasi" (cache server) + transaksi
  * stage_confirm.
  *
  * - Lanjutkan pada tiket HP ini merujuk target_uuid; dari antrean merujuk core_ticket_id (tiket ERP, bisa
@@ -8,12 +8,21 @@
  */
 import { and, asc, desc, eq, ne } from 'drizzle-orm';
 
-import type { FertilizationVerificationItem, StageTargetType, VerificationItem } from '../../sync/contract';
-import { fertilizationTicket, fertilizationVerificationQueue, harvestTicket, stageConfirm, verificationQueue } from '../schema';
+import type { StageTargetType, VerificationsResponse } from '../../sync/contract';
+import {
+  fertilizationTicket,
+  fertilizationVerificationQueue,
+  harvestTicket,
+  maintenanceTicket,
+  maintenanceVerificationQueue,
+  stageConfirm,
+  verificationQueue,
+} from '../schema';
 import type { AppDatabase } from '../types';
 
 export type VerificationRow = typeof verificationQueue.$inferSelect;
 export type FertilizationVerificationRow = typeof fertilizationVerificationQueue.$inferSelect;
+export type MaintenanceVerificationRow = typeof maintenanceVerificationQueue.$inferSelect;
 export type StageConfirmRow = typeof stageConfirm.$inferSelect;
 export type NewStageConfirm = typeof stageConfirm.$inferInsert;
 
@@ -22,14 +31,14 @@ export type ContinueErrorCode = 'unknown_target' | 'ticket_rejected' | 'ticket_c
 /** Ganti seluruh antrean dengan data server terbaru (atomik). */
 export function replaceVerificationQueue(
   db: AppDatabase,
-  items: VerificationItem[],
-  fertilizationItems: FertilizationVerificationItem[],
+  res: Pick<VerificationsResponse, 'items' | 'fertilization_items' | 'maintenance_items'>,
   fetchedAt: string,
 ): void {
   db.transaction((tx) => {
     tx.delete(verificationQueue).run();
     tx.delete(fertilizationVerificationQueue).run();
-    for (const i of items) {
+    tx.delete(maintenanceVerificationQueue).run();
+    for (const i of res.items) {
       tx.insert(verificationQueue)
         .values({
           coreTicketId: i.core_ticket_id,
@@ -56,7 +65,7 @@ export function replaceVerificationQueue(
         })
         .run();
     }
-    for (const i of fertilizationItems) {
+    for (const i of res.fertilization_items) {
       tx.insert(fertilizationVerificationQueue)
         .values({
           coreTicketId: i.core_ticket_id,
@@ -79,8 +88,38 @@ export function replaceVerificationQueue(
         })
         .run();
     }
+    for (const i of res.maintenance_items) {
+      tx.insert(maintenanceVerificationQueue)
+        .values({
+          coreTicketId: i.core_ticket_id,
+          name: i.name,
+          workDate: i.work_date,
+          stage: i.stage,
+          blockCode: i.block_code,
+          subBlokName: i.sub_blok_name,
+          workerId: i.worker_id,
+          workerName: i.worker_name,
+          gangName: i.gang_name,
+          workType: i.work_type,
+          areaHa: i.area_ha,
+          treeCount: i.tree_count,
+          hk: i.hk,
+          materials: i.materials,
+          mobileUuid: i.mobile_uuid,
+          createdBy: i.created_by,
+          fetchedAt,
+        })
+        .run();
+    }
   });
 }
+
+/** Tabel tiket HP dan cache antrean per jenis tiket. */
+const TABLES = {
+  harvest_ticket: { ticket: harvestTicket, queue: verificationQueue },
+  fertilization_ticket: { ticket: fertilizationTicket, queue: fertilizationVerificationQueue },
+  maintenance_ticket: { ticket: maintenanceTicket, queue: maintenanceVerificationQueue },
+} as const;
 
 /** Lanjutkan dari HP ini yang masih berlaku (tidak ditolak server) untuk satu jenis tiket. */
 function activeConfirms(db: AppDatabase, type: StageTargetType): { cores: Set<number>; uuids: Set<string> } {
@@ -117,9 +156,26 @@ export function pendingFertilizationVerifications(db: AppDatabase): Fertilizatio
     .filter((r) => !cores.has(r.coreTicketId) && !(r.mobileUuid && uuids.has(r.mobileUuid)));
 }
 
+/** Antrean tiket perawatan yang belum dilanjutkan dari HP ini, tanggal terbaru dulu. */
+export function pendingMaintenanceVerifications(db: AppDatabase): MaintenanceVerificationRow[] {
+  const { cores, uuids } = activeConfirms(db, 'maintenance_ticket');
+  return db
+    .select()
+    .from(maintenanceVerificationQueue)
+    .orderBy(desc(maintenanceVerificationQueue.workDate), asc(maintenanceVerificationQueue.name))
+    .all()
+    .filter((r) => !cores.has(r.coreTicketId) && !(r.mobileUuid && uuids.has(r.mobileUuid)));
+}
+
+const PENDING = {
+  harvest_ticket: pendingVerifications,
+  fertilization_ticket: pendingFertilizationVerifications,
+  maintenance_ticket: pendingMaintenanceVerifications,
+} as const;
+
 /** Jumlah semua tiket yang menunggu Lanjutkan dari user ini (badge menu). */
 export function pendingVerificationCount(db: AppDatabase): number {
-  return pendingVerifications(db).length + pendingFertilizationVerifications(db).length;
+  return Object.values(PENDING).reduce((n, pending) => n + pending(db).length, 0);
 }
 
 /** Lanjutkan terakhir untuk tiket HP `ticketUuid`. */
@@ -136,7 +192,7 @@ export function latestConfirmFor(db: AppDatabase, ticketUuid: string): StageConf
 
 /** Status tiket HP dan koreksinya yang tidak ditolak (dasar validasi Lanjutkan). */
 function ticketState(db: AppDatabase, type: StageTargetType, ticketUuid: string): { status: string; corrected: boolean } | null {
-  const table = type === 'harvest_ticket' ? harvestTicket : fertilizationTicket;
+  const table = TABLES[type].ticket;
   const ticket = db.select({ s: table.status }).from(table).where(eq(table.mobileUuid, ticketUuid)).get();
   if (!ticket) return null;
   const correction = db
@@ -166,9 +222,8 @@ export function validateContinueQueued(
   coreTicketId: number,
   type: StageTargetType = 'harvest_ticket',
 ): ContinueErrorCode | null {
-  const pending = type === 'harvest_ticket' ? pendingVerifications(db) : pendingFertilizationVerifications(db);
-  if (!pending.some((r) => r.coreTicketId === coreTicketId)) {
-    const table = type === 'harvest_ticket' ? verificationQueue : fertilizationVerificationQueue;
+  if (!PENDING[type](db).some((r) => r.coreTicketId === coreTicketId)) {
+    const table = TABLES[type].queue;
     const known = db.select({ id: table.coreTicketId }).from(table).where(eq(table.coreTicketId, coreTicketId)).get();
     return known ? 'already_continued' : 'unknown_target';
   }
