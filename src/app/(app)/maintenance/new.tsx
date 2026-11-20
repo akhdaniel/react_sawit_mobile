@@ -30,7 +30,7 @@ import { continueTicket } from '@/features/harvest/stage';
 import { saveMaintenanceTicket } from '@/features/maintenance/actions';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
-import { MAINTENANCE_WORK_TYPES, WEATHERS, type MaintenanceWorkType } from '@/sync/contract';
+import { MAINTENANCE_WORK_TYPES, WEATHERS, WORK_TYPE_MATERIALS, type MaintenanceWorkType } from '@/sync/contract';
 import { colors, radius, spacing } from '@/theme';
 
 type Weather = NonNullable<MaintenanceTicketRow['weather']>;
@@ -104,6 +104,16 @@ export default function NewMaintenanceTicketScreen() {
     [db, workDate, effBlockId, effSubBlokId, workerId, workType, areaHa, trees, hk, materials, masterRev],
   );
   const over = estimate.materials.some((m) => m.status === 'over');
+  const materialUsage = WORK_TYPE_MATERIALS[workType];
+
+  /** Pekerjaan manual tidak memakai material: material jenis sebelumnya dibuang, seperti form ERP. */
+  const selectWorkType = (w: MaintenanceWorkType) => {
+    setWorkType(w);
+    if (WORK_TYPE_MATERIALS[w] === 'none') {
+      setMaterials([]);
+      setPicking(false);
+    }
+  };
 
   const setQty = (productId: number, qty: number) =>
     setMaterials((ms) => ms.map((m) => (m.product_id === productId ? { ...m, qty: Math.max(0, qty) } : m)));
@@ -217,7 +227,7 @@ export default function NewMaintenanceTicketScreen() {
       <SectionTitle>{t('maintenance.workType')}</SectionTitle>
       <View style={styles.grid}>
         {MAINTENANCE_WORK_TYPES.map((w) => (
-          <Chip key={w} label={t(`maintenance.workTypes.${w}`)} selected={w === workType} onPress={() => setWorkType(w)} />
+          <Chip key={w} label={t(`maintenance.workTypes.${w}`)} selected={w === workType} onPress={() => selectWorkType(w)} />
         ))}
       </View>
       <Txt variant="small" style={{ color: colors.textMuted }}>
@@ -250,10 +260,12 @@ export default function NewMaintenanceTicketScreen() {
         )}
       </Card>
 
-      <SectionTitle>{t('maintenance.materials')}</SectionTitle>
-      {estimate.materials.length === 0 && (
+      {materialUsage !== 'none' && <SectionTitle>{t('maintenance.materials')}</SectionTitle>}
+      {materialUsage !== 'none' && estimate.materials.length === 0 && (
         <Card padded>
-          <Txt>{t('maintenance.noMaterials')}</Txt>
+          <Txt style={materialUsage === 'required' ? { color: colors.danger } : undefined}>
+            {t(materialUsage === 'required' ? 'maintenance.materialRequired' : 'maintenance.noMaterials')}
+          </Txt>
         </Card>
       )}
       {estimate.materials.map((m) => (
@@ -275,7 +287,8 @@ export default function NewMaintenanceTicketScreen() {
           </View>
         </Card>
       ))}
-      {unpicked.length > 0 &&
+      {materialUsage !== 'none' &&
+        unpicked.length > 0 &&
         (picking ? (
           <View style={styles.grid}>
             {unpicked.map((p) => (

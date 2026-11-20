@@ -149,6 +149,7 @@ export const MAINTENANCE_WORK_TYPES = [
   'pruning',
   'kastrasi',
   'pengendalian_hama',
+  'pengendalian_tikus',
   'perawatan_parit',
   'lainnya',
 ] as const;
@@ -161,8 +162,25 @@ export const WORK_TYPE_UNITS: Readonly<Record<MaintenanceWorkType, 'ha' | 'tree'
   pruning: 'tree',
   kastrasi: 'tree',
   pengendalian_hama: 'ha',
+  pengendalian_tikus: 'ha',
   perawatan_parit: 'hk',
   lainnya: 'hk',
+};
+/**
+ * Pemakaian material per jenis perawatan, cermin ERP: wajib untuk pekerjaan kimia/umpan (material keluar
+ * gudang saat verifikasi), tanpa material untuk pekerjaan manual, opsional untuk Lainnya.
+ */
+export const WORK_TYPE_MATERIALS: Readonly<Record<MaintenanceWorkType, 'required' | 'optional' | 'none'>> = {
+  semprot_gulma: 'required',
+  babat_gawangan: 'none',
+  garuk_piringan: 'none',
+  dongkel_anak_kayu: 'none',
+  pruning: 'none',
+  kastrasi: 'none',
+  pengendalian_hama: 'required',
+  pengendalian_tikus: 'required',
+  perawatan_parit: 'none',
+  lainnya: 'optional',
 };
 
 /** Baris tarif perawatan ERP: per jenis perawatan, kelas medan kosong = semua. */

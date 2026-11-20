@@ -291,6 +291,10 @@ Mengikuti tiket perawatan ERP (`xerpium.maintenance.ticket`), menu **Perawatan**
 - Satu tiket = satu pekerja hadir dari kemandoran rawat, satu blok + sub blok, satu jenis perawatan ERP.
 - Hasil kerja sesuai satuan jenis perawatan (`WORK_TYPE_UNITS`): Ha, pokok, atau HK; wajib > 0.
   Luas ≤ luas blok, pokok ≤ `block.tree_count`.
+- Pemakaian material mengikuti jenis perawatan (`WORK_TYPE_MATERIALS`, cermin ERP): wajib untuk semprot gulma,
+  pengendalian hama, dan pengendalian tikus; tanpa material untuk pekerjaan manual (bagian Material disembunyikan,
+  material dibuang saat jenis diganti); opsional untuk lainnya. Server menolak dengan `material_required` /
+  `material_not_allowed`.
 - Material = baris tiket (`materials`, tidak boleh dobel), produk non-pupuk. Batas = `dosage_per_ha × luas`;
   material berdosis butuh luas, dan melebihi batas tidak bisa disimpan (ERP tidak bisa memverifikasinya).
 - Estimasi upah dari `harvest_rate.maintenance_lines` (baris kelas medan sub blok didahulukan) × hasil kerja.

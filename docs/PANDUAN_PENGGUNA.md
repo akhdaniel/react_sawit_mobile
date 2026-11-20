@@ -210,9 +210,12 @@ Menu **Perawatan → Tiket perawatan baru**. Satu tiket untuk satu pekerja, sama
 3. Pilih **pekerja** yang sudah absen hadir di kemandoran itu.
 4. Isi hasil kerja. Kolom sesuai dasar upah tampil paling atas. Luas tidak boleh melebihi luas blok dan pokok
    tidak boleh melebihi pokok blok. HK default 1 dan bisa diubah (mis. 0,5).
-5. **Tambah material** (herbisida, pestisida, perata) lalu isi jumlahnya. Batas material = dosis standar per Ha
-   × luas. Material berdosis butuh luas diisi. Material yang **melebihi dosis tidak bisa disimpan**, karena ERP
-   juga tidak akan bisa memverifikasinya. Pupuk dicatat di menu **Pemupukan**.
+5. **Tambah material** (herbisida, pestisida, umpan tikus, perata) lalu isi jumlahnya. Material mengikuti jenis
+   perawatan: **wajib** untuk Semprot gulma, Pengendalian hama, dan Pengendalian tikus; **tidak dipakai** untuk
+   pekerjaan manual (Babat gawangan, Garuk piringan, Dongkel anak kayu, Pruning, Kastrasi, Perawatan parit), dan
+   bagian Material tidak tampil; **opsional** untuk Lainnya. Batas material = dosis standar per Ha × luas.
+   Material berdosis butuh luas diisi. Material yang **melebihi dosis tidak bisa disimpan**, karena ERP juga tidak
+   akan bisa memverifikasinya. Pupuk dicatat di menu **Pemupukan**.
 6. Cuaca dan catatan opsional. Estimasi upah dihitung dari tarif perawatan ERP.
 7. **Simpan & pekerja berikutnya** mempertahankan blok, jenis perawatan, dan material; **Simpan tiket** untuk
    selesai; atau **Simpan & Lanjutkan** untuk menyimpan sekaligus memverifikasi.

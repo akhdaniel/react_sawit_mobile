@@ -12,7 +12,7 @@ import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { DosageStatus } from '../../features/fertilization/calc';
 import { findRate } from '../../features/harvest/calc';
 import { findMaintenanceLine, maintenanceWage, materialDosage, workQty, workUnit } from '../../features/maintenance/calc';
-import type { MaintenanceWorkType } from '../../sync/contract/master';
+import { WORK_TYPE_MATERIALS, type MaintenanceWorkType } from '../../sync/contract/master';
 import { afdeling, block, employee, gang, harvestRate, maintenanceTicket, product, subBlok, type MaintenanceMaterial } from '../schema';
 import type { AppDatabase } from '../types';
 import { presentEmployeeIds } from './attendance';
@@ -30,6 +30,8 @@ export type MaintenanceErrorCode =
   | 'area_exceeds_block'
   | 'tree_count_exceeds_block'
   | 'unknown_product'
+  | 'material_required'
+  | 'material_not_allowed'
   | 'duplicate_material'
   | 'invalid_qty'
   | 'area_required_for_dosage'
@@ -159,6 +161,9 @@ export function validateMaintenance(db: AppDatabase, input: MaintenanceInput): M
   if (b?.ha && Math.round(input.areaHa * 100) > Math.round(b.ha * 100)) issues.push('area_exceeds_block');
   if (b?.treeCount && input.treeCount > b.treeCount) issues.push('tree_count_exceeds_block');
 
+  const usage = WORK_TYPE_MATERIALS[input.workType];
+  if (usage === 'required' && input.materials.length === 0) issues.push('material_required');
+  if (usage === 'none' && input.materials.length > 0) issues.push('material_not_allowed');
   const ids = input.materials.map((m) => m.product_id);
   if (new Set(ids).size !== ids.length) issues.push('duplicate_material');
   const prods = new Map((ids.length ? db.select().from(product).where(inArray(product.id, ids)).all() : []).map((p) => [p.id, p]));

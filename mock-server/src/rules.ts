@@ -2,7 +2,7 @@
  * Validasi bisnis sisi server (cermin aturan di HP) untuk POST /transactions.
  * Server tetap menjadi penentu akhir: transaksi yang lolos zod bisa saja ditolak di sini.
  */
-import { WORK_TYPE_UNITS, type TxItem } from '../../src/sync/contract';
+import { WORK_TYPE_MATERIALS, WORK_TYPE_UNITS, type TxItem } from '../../src/sync/contract';
 import type { Store } from './store';
 
 type Block = { id: number; afdeling_id: number; bjr_kg: number; ha: number };
@@ -181,6 +181,9 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
       if (!(qty > 0)) return { ok: false, reason: 'invalid_work_qty', flags };
       if (block.ha && Math.round(p.area_ha * 100) > Math.round(block.ha * 100)) return { ok: false, reason: 'area_exceeds_block', flags };
       if (block.tree_count && p.tree_count > block.tree_count) return { ok: false, reason: 'tree_count_exceeds_block', flags };
+      const usage = WORK_TYPE_MATERIALS[p.work_type];
+      if (usage === 'required' && p.materials.length === 0) return { ok: false, reason: 'material_required', flags };
+      if (usage === 'none' && p.materials.length > 0) return { ok: false, reason: 'material_not_allowed', flags };
       const ids = p.materials.map((m) => m.product_id);
       if (new Set(ids).size !== ids.length) return { ok: false, reason: 'duplicate_material', flags };
       for (const m of p.materials) {

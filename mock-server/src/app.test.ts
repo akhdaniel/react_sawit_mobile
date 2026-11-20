@@ -487,7 +487,7 @@ describe('tiket perawatan', () => {
     },
   });
 
-  it('diterima sesuai syarat ERP; melebihi dosis atau tanpa hasil kerja ditolak', async () => {
+  it('diterima sesuai syarat ERP; melebihi dosis, tanpa hasil kerja, atau material tidak sesuai jenis ditolak', async () => {
     const { access_token, user } = await login('mandor.rawat');
     const items = [
       checkIn(user.id, 16, 4),
@@ -495,11 +495,13 @@ describe('tiket perawatan', () => {
       maintenance(user.id, { materials: [{ product_id: 1, qty: 3.01 }] }),
       maintenance(user.id, { work_type: 'pruning', area_ha: 0, tree_count: 0, materials: [] }),
       maintenance(user.id, { work_type: 'perawatan_parit', area_ha: 0, hk: 0.5, materials: [] }),
+      maintenance(user.id, { work_type: 'pengendalian_tikus', materials: [] }),
+      maintenance(user.id, { work_type: 'babat_gawangan' }),
     ];
     const r = transactionsResponseSchema.parse((await call('POST', '/transactions', { items }, access_token)).json);
     assert.deepEqual(
       r.results.map((x) => x.reason ?? x.status),
-      ['accepted', 'accepted', 'over_dose', 'invalid_work_qty', 'accepted'],
+      ['accepted', 'accepted', 'over_dose', 'invalid_work_qty', 'accepted', 'material_required', 'material_not_allowed'],
     );
   });
 

@@ -83,10 +83,15 @@ describe('tiket perawatan', () => {
     const db = setup();
     expect(validateMaintenance(db, base)).toEqual([]);
     expect(validateMaintenance(db, { ...base, materials: [{ product_id: 60, qty: 3.01 }] })).toEqual(['over_dose']);
-    expect(validateMaintenance(db, { ...base, workType: 'pruning', areaHa: 0, treeCount: 10 })).toEqual(['area_required_for_dosage']);
+    expect(validateMaintenance(db, { ...base, workType: 'lainnya', areaHa: 0 })).toEqual(['area_required_for_dosage']);
+    // Material mengikuti jenis perawatan: wajib untuk kimia/umpan, dilarang untuk pekerjaan manual, opsional untuk Lainnya.
+    expect(validateMaintenance(db, { ...base, materials: [] })).toEqual(['material_required']);
+    expect(validateMaintenance(db, { ...base, workType: 'pengendalian_tikus', materials: [] })).toEqual(['material_required']);
+    expect(validateMaintenance(db, { ...base, workType: 'pruning', areaHa: 0, treeCount: 10, materials: [{ product_id: 61, qty: 1 }] })).toEqual(['material_not_allowed']);
+    expect(validateMaintenance(db, { ...base, workType: 'lainnya', materials: [] })).toEqual([]);
     expect(validateMaintenance(db, { ...base, workType: 'pruning', treeCount: 0, materials: [] })).toEqual(['invalid_work_qty']);
-    expect(validateMaintenance(db, { ...base, areaHa: 30.01, materials: [] })).toEqual(['area_exceeds_block']);
-    expect(validateMaintenance(db, { ...base, treeCount: 2001, materials: [] })).toEqual(['tree_count_exceeds_block']);
+    expect(validateMaintenance(db, { ...base, workType: 'lainnya', areaHa: 30.01, materials: [] })).toEqual(['area_exceeds_block']);
+    expect(validateMaintenance(db, { ...base, workType: 'lainnya', treeCount: 2001, materials: [] })).toEqual(['tree_count_exceeds_block']);
     expect(validateMaintenance(db, { ...base, materials: [{ product_id: 61, qty: 1 }, { product_id: 61, qty: 1 }] })).toEqual(['duplicate_material']);
     expect(validateMaintenance(db, { ...base, materials: [{ product_id: 50, qty: 1 }] })).toEqual(['unknown_product']);
     expect(validateMaintenance(db, { ...base, materials: [{ product_id: 61, qty: 0 }] })).toEqual(['invalid_qty']);

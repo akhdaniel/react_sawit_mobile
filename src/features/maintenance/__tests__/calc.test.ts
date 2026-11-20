@@ -8,6 +8,7 @@ describe('kalkulasi perawatan', () => {
     expect([workUnit('semprot_gulma'), workQty('semprot_gulma', w)]).toEqual(['ha', 1.5]);
     expect([workUnit('pruning'), workQty('pruning', w)]).toEqual(['tree', 80]);
     expect([workUnit('perawatan_parit'), workQty('perawatan_parit', w)]).toEqual(['hk', 0.5]);
+    expect([workUnit('pengendalian_tikus'), workQty('pengendalian_tikus', w)]).toEqual(['ha', 1.5]);
   });
 
   it('baris tarif: kelas medan sub blok didahulukan, lalu baris tanpa kelas medan', () => {
