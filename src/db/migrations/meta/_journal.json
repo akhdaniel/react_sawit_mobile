@@ -43,6 +43,104 @@
       "when": 1792330199758,
       "tag": "0005_employee_nfc",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793803617688,
+      "tag": "0006_backend_structure_masters",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793803626683,
+      "tag": "0007_drop_penalty_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793803640943,
+      "tag": "0008_append_only_guards_v3",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793803655043,
+      "tag": "0009_reset_master_cursor",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793867891341,
+      "tag": "0010_fertilization_ticket",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793867903279,
+      "tag": "0011_append_only_guards_v4",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793867906200,
+      "tag": "0012_reset_master_cursor_fertilization",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793869889696,
+      "tag": "0013_maintenance_ticket",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793869891445,
+      "tag": "0014_append_only_guards_v5",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793869895143,
+      "tag": "0015_reset_master_cursor_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1794822718494,
+      "tag": "0016_stage_confirm",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794822727843,
+      "tag": "0017_append_only_guards_v6",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794990954364,
+      "tag": "0018_fertilization_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1794992406759,
+      "tag": "0019_maintenance_verification",
+      "breakpoints": true
     }
   ]
 }

@@ -9,10 +9,12 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { reportsFor, type DailySummary } from '@/db/repositories/daily-report';
 import { gang } from '@/db/schema';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 
 export default function DailyReportListScreen() {
+  const refresh = useRefresh();
   const { db, clock } = useServices();
   const date = clock.workDate();
   const rows = useTableQuery(['daily_report'], () => reportsFor(db, date));
@@ -21,7 +23,7 @@ export default function DailyReportListScreen() {
   );
 
   return (
-    <Screen title={t('report.title')} back>
+    <Screen refresh={refresh} title={t('report.title')} back>
       <Button icon="file-sign" label={t('report.new')} onPress={() => router.push('/daily-report/new')} />
       <SectionTitle>{t('report.list')}</SectionTitle>
       {rows.length === 0 ? (

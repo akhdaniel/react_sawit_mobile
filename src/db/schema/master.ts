@@ -35,6 +35,8 @@ export const block = sqliteTable(
     status: text('status', { enum: ['TM', 'TBM'] }).notNull(),
     bjrKg: real('bjr_kg').notNull(),
     polygonGeojson: text('polygon_geojson'),
+    /** Jumlah pokok blok (batas pokok dipupuk per tiket); null/0 = tidak dibatasi. */
+    treeCount: integer('tree_count'),
   },
   (t) => [index('block_afdeling_idx').on(t.afdelingId)],
 );
@@ -62,6 +64,10 @@ export const employee = sqliteTable(
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     /** UID kartu NFC pekerja (heksadesimal huruf besar), didaftarkan di ERP. */
     nfcUid: text('nfc_uid'),
+    /** Peran kebun ERP, mis. 'pemanen', 'sopir'. */
+    role: text('role'),
+    /** Tipe karyawan ERP, penentu tarif panen. */
+    employeeType: text('employee_type'),
   },
   (t) => [index('employee_gang_idx').on(t.gangId), index('employee_nik_idx').on(t.nik), index('employee_nfc_idx').on(t.nfcUid)],
 );
@@ -73,6 +79,8 @@ export const gang = sqliteTable(
     name: text('name').notNull(),
     foremanEmployeeId: integer('foreman_employee_id'),
     afdelingId: integer('afdeling_id').notNull(),
+    /** 'panen' / 'rawat'; null pada data dari server versi lama. */
+    gangType: text('gang_type', { enum: ['panen', 'rawat'] }),
   },
   (t) => [index('gang_afdeling_idx').on(t.afdelingId)],
 );
@@ -90,6 +98,13 @@ export const product = sqliteTable('product', {
   id: integer('id').primaryKey(),
   name: text('name').notNull(),
   uom: text('uom').notNull(),
+  /** Pupuk dipilih di tiket pemupukan, bukan di material perawatan. */
+  isFertilizer: integer('is_fertilizer', { mode: 'boolean' }),
+  fertilizerGroupId: integer('fertilizer_group_id'),
+  /** Dosis standar per pokok (kg) untuk satu kali aplikasi; null = tanpa batas. */
+  dosageKgPerTree: real('dosage_kg_per_tree'),
+  /** Dosis standar material perawatan per Ha; null = tanpa batas. */
+  dosagePerHa: real('dosage_per_ha'),
 });
 
 export const dosageRule = sqliteTable(
@@ -108,18 +123,65 @@ export const vehicle = sqliteTable('vehicle', {
   id: integer('id').primaryKey(),
   plate: text('plate').notNull(),
   type: text('type').notNull(),
+  /** 'own' = truk sendiri (sopir karyawan), 'rental' = truk sewa (nama sopir bebas). */
+  ownership: text('ownership', { enum: ['own', 'rental'] }),
 });
 
-export const penaltyRule = sqliteTable(
-  'penalty_rule',
+export const subBlok = sqliteTable(
+  'sub_blok',
   {
     id: integer('id').primaryKey(),
     code: text('code').notNull(),
-    name: text('name').notNull(),
-    amount: real('amount').notNull(),
+    blockId: integer('block_id').notNull(),
+    terrainClassId: integer('terrain_class_id').notNull(),
   },
-  (t) => [uniqueIndex('penalty_rule_code_uq').on(t.code)],
+  (t) => [index('sub_blok_block_idx').on(t.blockId)],
 );
+
+export interface HarvestRateLine {
+  grade: 'ripe' | 'unripe' | 'rotten' | 'empty_bunch' | 'long_stalk' | 'loose_fruit';
+  line_type: 'premium' | 'penalty';
+  basis: 'per_bunch' | 'per_kg';
+  scope: 'all' | 'over_basis';
+  terrain_class_id?: number | null;
+  amount: number;
+}
+
+export interface FertilizationRateLine {
+  fertilizer_group_id?: number | null;
+  method?: 'manual' | 'mekanis' | 'drone' | null;
+  terrain_class_id?: number | null;
+  basis: 'per_tree' | 'per_kg';
+  amount: number;
+}
+
+export interface MaintenanceRateLine {
+  work_type: string;
+  terrain_class_id?: number | null;
+  amount: number;
+}
+
+/** Tarif panen aktif ERP; baris tarifnya disimpan utuh sebagai JSON. */
+export const harvestRate = sqliteTable('harvest_rate', {
+  id: integer('id').primaryKey(),
+  estateId: integer('estate_id'),
+  employeeType: text('employee_type'),
+  /** YYYY-MM-DD */
+  dateFrom: text('date_from').notNull(),
+  dateTo: text('date_to'),
+  lines: text('lines', { mode: 'json' }).$type<HarvestRateLine[]>().notNull(),
+  /** Baris tarif pemupukan; null pada data dari server versi lama. */
+  fertilizationLines: text('fertilization_lines', { mode: 'json' }).$type<FertilizationRateLine[]>(),
+  /** Baris tarif perawatan; null pada data dari server versi lama. */
+  maintenanceLines: text('maintenance_lines', { mode: 'json' }).$type<MaintenanceRateLine[]>(),
+});
+
+export const pks = sqliteTable('pks', {
+  id: integer('id').primaryKey(),
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+  estateId: integer('estate_id'),
+});
 
 export const workPlan = sqliteTable(
   'work_plan',
@@ -158,8 +220,10 @@ export const masterTables = {
   product,
   dosage_rule: dosageRule,
   vehicle,
-  penalty_rule: penaltyRule,
   work_plan: workPlan,
+  sub_blok: subBlok,
+  harvest_rate: harvestRate,
+  pks,
 } as const;
 
 export type MasterEntity = keyof typeof masterTables;

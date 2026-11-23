@@ -9,10 +9,12 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { assignmentsFor } from '@/db/repositories/assignment';
 import { activity, block } from '@/db/schema';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 
 export default function AssignmentListScreen() {
+  const refresh = useRefresh();
   const { db, clock } = useServices();
   const workDate = clock.workDate();
   const rows = useTableQuery(['assignment'], () => assignmentsFor(db, workDate));
@@ -23,7 +25,7 @@ export default function AssignmentListScreen() {
   });
 
   return (
-    <Screen title={t('assignment.title')} back>
+    <Screen refresh={refresh} title={t('assignment.title')} back>
       <Button icon="clipboard-plus" label={t('assignment.new')} onPress={() => router.push('/assignment/new')} />
       <SectionTitle>{t('assignment.today')}</SectionTitle>
       {rows.length === 0 ? (

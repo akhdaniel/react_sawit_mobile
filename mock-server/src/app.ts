@@ -17,6 +17,7 @@ import {
   photoUploadFieldsSchema,
   txItemSchema,
   type MasterEntityName,
+  type TxItem,
 } from '../../src/sync/contract';
 import { afdelingOf, evaluate, summarize } from './rules';
 import type { Store } from './store';
@@ -211,6 +212,110 @@ export function createApp(store: Store) {
       return { mobile_uuid: d.mobile_uuid, status: 'accepted' as const, reason: null };
     });
     res.json({ results });
+  });
+
+  // ---- Verifikasi tiket --------------------------------------------------
+  // Mock tanpa tahap ERP: antrean = tiket panen/pemupukan/perawatan user lain di afdeling user yang belum dilanjutkan
+  // user ini (id tiket ERP = server_id transaksi, unik per jenis tiket).
+  api.get('/verifications', requireAuth, (req, res) => {
+    const { user } = (req as Authed).session;
+    if (!['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat'].some((r) => user.roles.includes(r as never))) {
+      throw new HttpError(403, 'forbidden', 'hanya mandor atau kerani panen/rawat');
+    }
+    const continued = new Set<string>();
+    for (const t of store.transactions.values()) {
+      if (t.item.type !== 'stage_confirm' || t.userId !== user.id || t.status !== 'accepted') continue;
+      const p = t.item.payload;
+      continued.add(`${p.target_type}:${p.target_uuid ?? p.core_ticket_id}`);
+    }
+    const waiting = (type: 'harvest_ticket' | 'fertilization_ticket' | 'maintenance_ticket') =>
+      [...store.transactions.values()]
+        .filter((t) => t.item.type === type && t.status === 'accepted' && t.userId !== user.id)
+        .filter((t) => !continued.has(`${type}:${t.item.mobile_uuid}`) && !continued.has(`${type}:${t.serverId}`))
+        .filter((t) => {
+          const afd = afdelingOf(store, t.item);
+          return afd != null && user.afdeling_ids.includes(afd);
+        });
+    const createdBy = (userId: number) => store.users.find((u) => u.id === userId)?.name ?? null;
+    const items = waiting('harvest_ticket').map((t) => {
+      const p = (t.item as Extract<TxItem, { type: 'harvest_ticket' }>).payload;
+      const block = store.getMaster<{ id: number; code: string }>('block', p.block_id);
+      const tph = store.getMaster<{ id: number; code: string }>('tph', p.tph_id);
+      const harvester = store.getMaster<{ id: number; name: string }>('employee', p.harvester_employee_id);
+      return {
+        core_ticket_id: t.serverId!,
+        name: p.ticket_no,
+        work_date: p.work_date,
+        stage: 'Draft',
+        block_code: block?.code ?? '',
+        tph_code: tph?.code ?? '',
+        sub_blok_name: null,
+        harvester_id: p.harvester_employee_id,
+        harvester_name: harvester?.name ?? `#${p.harvester_employee_id}`,
+        gang_name: null,
+        ripe: p.ripe,
+        unripe: p.unripe,
+        rotten: p.rotten,
+        empty_bunch: p.empty_bunch,
+        long_stalk: p.long_stalk,
+        loose_fruit_kg: p.loose_fruit_kg,
+        is_late_entry: p.is_late_entry,
+        has_photo: p.photo_id != null,
+        mobile_uuid: t.item.mobile_uuid,
+        created_by: createdBy(t.userId),
+      };
+    });
+    const fertilizationItems = waiting('fertilization_ticket').map((t) => {
+      const p = (t.item as Extract<TxItem, { type: 'fertilization_ticket' }>).payload;
+      const block = store.getMaster<{ id: number; code: string }>('block', p.block_id);
+      const worker = store.getMaster<{ id: number; name: string }>('employee', p.worker_employee_id);
+      const product = store.getMaster<{ id: number; name: string }>('product', p.product_id);
+      return {
+        core_ticket_id: t.serverId!,
+        name: `PPK/${p.work_date}/${t.serverId}`,
+        work_date: p.work_date,
+        stage: 'Draft',
+        block_code: block?.code ?? '',
+        sub_blok_name: null,
+        worker_id: p.worker_employee_id,
+        worker_name: worker?.name ?? `#${p.worker_employee_id}`,
+        gang_name: null,
+        fertilizer_name: product?.name ?? `#${p.product_id}`,
+        method: p.method,
+        application_round: p.application_round,
+        tree_count: p.tree_count,
+        qty_kg: p.qty_kg,
+        mobile_uuid: t.item.mobile_uuid,
+        created_by: createdBy(t.userId),
+      };
+    });
+    const maintenanceItems = waiting('maintenance_ticket').map((t) => {
+      const p = (t.item as Extract<TxItem, { type: 'maintenance_ticket' }>).payload;
+      const block = store.getMaster<{ id: number; code: string }>('block', p.block_id);
+      const worker = store.getMaster<{ id: number; name: string }>('employee', p.worker_employee_id);
+      return {
+        core_ticket_id: t.serverId!,
+        name: `PRW/${p.work_date}/${t.serverId}`,
+        work_date: p.work_date,
+        stage: 'Draft',
+        block_code: block?.code ?? '',
+        sub_blok_name: null,
+        worker_id: p.worker_employee_id,
+        worker_name: worker?.name ?? `#${p.worker_employee_id}`,
+        gang_name: null,
+        work_type: p.work_type,
+        area_ha: p.area_ha,
+        tree_count: p.tree_count,
+        hk: p.hk,
+        materials: p.materials.map((m) => {
+          const product = store.getMaster<{ id: number; name: string; uom: string }>('product', m.product_id);
+          return { name: product?.name ?? `#${m.product_id}`, qty: m.qty, uom: product?.uom ?? '' };
+        }),
+        mobile_uuid: t.item.mobile_uuid,
+        created_by: createdBy(t.userId),
+      };
+    });
+    res.json({ items, fertilization_items: fertilizationItems, maintenance_items: maintenanceItems });
   });
 
   // ---- Device ------------------------------------------------------------

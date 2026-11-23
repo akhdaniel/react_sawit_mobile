@@ -79,6 +79,8 @@ export const harvestTicket = sqliteTable(
     ticketNo: text('ticket_no').notNull(),
     tphId: integer('tph_id').notNull(),
     blockId: integer('block_id').notNull(),
+    /** Sub blok (kelas medan → tarif). Null pada tiket dari versi aplikasi lama. */
+    subBlokId: integer('sub_blok_id'),
     harvesterEmployeeId: integer('harvester_employee_id').notNull(),
     ripe: integer('ripe').notNull().default(0),
     unripe: integer('unripe').notNull().default(0),
@@ -106,6 +108,11 @@ export const spb = sqliteTable(
     spbNo: text('spb_no').notNull(),
     vehicleId: integer('vehicle_id').notNull(),
     driverName: text('driver_name').notNull(),
+    /** Sopir karyawan untuk truk sendiri. */
+    driverEmployeeId: integer('driver_employee_id'),
+    pksId: integer('pks_id'),
+    /** Titik muat SPB induk (diisi pada SPB langsir). */
+    transferPoint: text('transfer_point'),
     destination: text('destination', { enum: ['internal_mill', 'partner_mill'] }).notNull(),
     /** SPB induk untuk langsir. */
     parentSpbUuid: text('parent_spb_uuid'),
@@ -123,6 +130,9 @@ export const spbLine = sqliteTable(
   {
     spbUuid: text('spb_uuid').notNull(),
     harvestTicketUuid: text('harvest_ticket_uuid').notNull(),
+    /** Janjang dimuat; null = tiket dimuat utuh (data versi lama). */
+    bunchCount: integer('bunch_count'),
+    looseFruitKg: real('loose_fruit_kg'),
   },
   (t) => [
     primaryKey({ columns: [t.spbUuid, t.harvestTicketUuid] }),
@@ -130,6 +140,61 @@ export const spbLine = sqliteTable(
   ],
 );
 
+/** Tiket pemupukan: satu pekerja per tiket (struktur tiket pemupukan ERP). */
+export const fertilizationTicket = sqliteTable(
+  'fertilization_ticket',
+  {
+    ...txColumns(),
+    workDate: text('work_date').notNull(),
+    blockId: integer('block_id').notNull(),
+    subBlokId: integer('sub_blok_id'),
+    gangId: integer('gang_id').notNull(),
+    workerEmployeeId: integer('worker_employee_id').notNull(),
+    productId: integer('product_id').notNull(),
+    method: text('method', { enum: ['manual', 'mekanis', 'drone'] }).notNull(),
+    applicationRound: integer('application_round'),
+    treeCount: integer('tree_count').notNull(),
+    qtyKg: real('qty_kg').notNull(),
+    weather: text('weather', { enum: ['cerah', 'berawan', 'hujan_ringan', 'hujan_lebat'] }),
+    notes: text('notes'),
+  },
+  (t) => [
+    index('fertilization_ticket_date_worker_idx').on(t.workDate, t.workerEmployeeId),
+    index('fertilization_ticket_status_idx').on(t.status),
+  ],
+);
+
+/** Baris material, disimpan dalam bentuk kontrak API (dikirim apa adanya). */
+export interface MaintenanceMaterial {
+  product_id: number;
+  qty: number;
+}
+
+/** Tiket perawatan: satu pekerja per tiket, material sebagai baris tiket (struktur tiket perawatan ERP). */
+export const maintenanceTicket = sqliteTable(
+  'maintenance_ticket',
+  {
+    ...txColumns(),
+    workDate: text('work_date').notNull(),
+    blockId: integer('block_id').notNull(),
+    subBlokId: integer('sub_blok_id'),
+    gangId: integer('gang_id').notNull(),
+    workerEmployeeId: integer('worker_employee_id').notNull(),
+    workType: text('work_type').notNull(),
+    areaHa: real('area_ha').notNull().default(0),
+    treeCount: integer('tree_count').notNull().default(0),
+    hk: real('hk').notNull().default(1),
+    weather: text('weather', { enum: ['cerah', 'berawan', 'hujan_ringan', 'hujan_lebat'] }),
+    notes: text('notes'),
+    materials: text('materials', { mode: 'json' }).$type<MaintenanceMaterial[]>().notNull(),
+  },
+  (t) => [
+    index('maintenance_ticket_date_worker_idx').on(t.workDate, t.workerEmployeeId),
+    index('maintenance_ticket_status_idx').on(t.status),
+  ],
+);
+
+/** @deprecated Diganti tiket perawatan; tetap untuk transaksi lama yang belum terkirim. */
 export const upkeep = sqliteTable(
   'upkeep',
   {
@@ -185,6 +250,25 @@ export const approvalDecision = sqliteTable(
   (t) => [index('approval_decision_target_idx').on(t.targetUuid), index('approval_decision_status_idx').on(t.status)],
 );
 
+/**
+ * Tombol Lanjutkan tiket panen. Target salah satu: tiket HP ini (target_uuid) atau tiket ERP dari antrean
+ * verifikasi (core_ticket_id). Hasilnya (tahap ERP) terlihat di status dokumen tiketnya.
+ */
+export const stageConfirm = sqliteTable(
+  'stage_confirm',
+  {
+    ...txColumns(),
+    targetType: text('target_type', { enum: ['harvest_ticket', 'fertilization_ticket', 'maintenance_ticket'] }).notNull(),
+    targetUuid: text('target_uuid'),
+    coreTicketId: integer('core_ticket_id'),
+  },
+  (t) => [
+    index('stage_confirm_target_idx').on(t.targetUuid),
+    index('stage_confirm_core_idx').on(t.coreTicketId),
+    index('stage_confirm_status_idx').on(t.status),
+  ],
+);
+
 export const photo = sqliteTable(
   'photo',
   {
@@ -213,10 +297,13 @@ export const transactionTables = {
   assignment,
   harvest_ticket: harvestTicket,
   spb,
+  fertilization_ticket: fertilizationTicket,
+  maintenance_ticket: maintenanceTicket,
   upkeep,
   material_usage: materialUsage,
   daily_report: dailyReport,
   approval_decision: approvalDecision,
+  stage_confirm: stageConfirm,
 } as const;
 
 export type TransactionType = keyof typeof transactionTables;

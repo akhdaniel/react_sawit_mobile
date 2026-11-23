@@ -10,6 +10,7 @@ import {
   photoUploadResponseSchema,
   transactionsResponseSchema,
   transactionStatusResponseSchema,
+  verificationsResponseSchema,
   workplanResponseSchema,
 } from './contract';
 import type { SyncApi } from './engine';
@@ -54,6 +55,7 @@ export function createSyncApi(api: ApiClient, filePart: PhotoFilePart): SyncApi 
       return api.request('POST', '/photos', { formData: form, schema: photoUploadResponseSchema, timeoutMs: 60_000 });
     },
     getApprovals: (afdelingId) => api.request('GET', `/approvals?afdeling_id=${afdelingId}`, { schema: approvalsResponseSchema }),
+    getVerifications: () => api.request('GET', '/verifications', { schema: verificationsResponseSchema }),
     async heartbeat(body) {
       await api.request('POST', '/device/heartbeat', { body, schema: heartbeatResponseSchema, retry: false });
     },

@@ -1,6 +1,7 @@
 /**
- * SPB baru: kendaraan, sopir, tujuan; tiket dari pindai QR (HP mandor lain) atau tiket di
- * HP ini; minimal 2 foto muatan. Langsir: parent = SPB induk, tiket induk ikut terbawa.
+ * SPB baru (struktur SPB ERP): kendaraan, sopir (karyawan untuk truk sendiri), PKS tujuan; tiket dari
+ * pindai QR (HP mandor lain) atau tiket di HP ini, dengan muatan per tiket (janjang yang tidak dimuat
+ * = restan); minimal 2 foto muatan. Langsir: parent = SPB induk, muatan induk ikut terbawa.
  */
 import { asc, eq } from 'drizzle-orm';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -12,14 +13,15 @@ import { Card, SectionTitle } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Icon } from '@/components/Icon';
 import { ListRow } from '@/components/ListRow';
+import { NumberStepper } from '@/components/NumberStepper';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { ticketViews } from '@/db/repositories/harvest';
-import { spbLines, spbTotals, type SpbTicket } from '@/db/repositories/transport';
-import { harvestTicket, spb, vehicle } from '@/db/schema';
+import { spbLoadLines, spbTotals, type SpbTicket } from '@/db/repositories/transport';
+import { employee, harvestTicket, pks, spb, vehicle } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
 import { CameraCapture, type CapturedPhoto } from '@/features/camera/CameraCapture';
 import { totalBunches } from '@/features/harvest/calc';
@@ -39,22 +41,42 @@ export default function NewSpbScreen() {
 
   const parentSpb = useMemo(() => (parent ? (db.select().from(spb).where(eq(spb.mobileUuid, parent)).get() ?? null) : null), [parent, db]);
   const vehicles = useTableQuery(['vehicle'], () => db.select().from(vehicle).orderBy(asc(vehicle.plate)).all());
+  const drivers = useTableQuery(['employee'], () => db.select().from(employee).where(eq(employee.role, 'sopir')).orderBy(asc(employee.name)).all());
+  const mills = useTableQuery(['pks'], () => db.select().from(pks).orderBy(asc(pks.name)).all());
 
-  // Langsir: tiket SPB induk ikut terbawa (data tiket lokal bila ada).
+  // Langsir: tiket SPB induk ikut terbawa dengan muatan induknya (data tiket lokal bila ada).
   const initialTickets = useMemo<SpbTicket[]>(() => {
     if (!parentSpb) return [];
-    return spbLines(db, parentSpb.mobileUuid).map((u) => {
-      const tk = db.select().from(harvestTicket).where(eq(harvestTicket.mobileUuid, u)).get();
-      return tk
-        ? { uuid: u, ticketNo: tk.ticketNo, blockCode: '', tphCode: '', bunches: totalBunches(tk), estKg: tk.estKg }
-        : { uuid: u, ticketNo: u.slice(0, 8), blockCode: '', tphCode: '', bunches: 0, estKg: 0 };
+    return spbLoadLines(db, parentSpb.mobileUuid).map((line) => {
+      const tk = db.select().from(harvestTicket).where(eq(harvestTicket.mobileUuid, line.harvestTicketUuid)).get();
+      const bunches = tk ? totalBunches(tk) : (line.bunchCount ?? 0);
+      return {
+        uuid: line.harvestTicketUuid,
+        ticketNo: tk?.ticketNo ?? line.harvestTicketUuid.slice(0, 8),
+        blockCode: '',
+        tphCode: '',
+        bunches,
+        estKg: tk?.estKg ?? 0,
+        looseFruitKg: tk?.looseFruitKg ?? line.looseFruitKg ?? null,
+        loadBunches: line.bunchCount ?? bunches,
+        loadLooseKg: line.looseFruitKg ?? tk?.looseFruitKg ?? null,
+      };
     });
   }, [parentSpb, db]);
 
   const [vehicleId, setVehicleId] = useState<number | null>(null);
   const [driver, setDriver] = useState(parentSpb?.driverName ?? '');
+  const [driverEmployeeId, setDriverEmployeeId] = useState<number | null>(parentSpb?.driverEmployeeId ?? null);
+  const [pksId, setPksId] = useState<number | null>(parentSpb?.pksId ?? null);
+  const [transferPoint, setTransferPoint] = useState('');
   const [destination, setDestination] = useState<'internal_mill' | 'partner_mill'>(parentSpb?.destination ?? 'internal_mill');
   const [tickets, setTickets] = useState<SpbTicket[]>(initialTickets);
+  const [editing, setEditing] = useState<string | null>(null);
+  const ownVehicle = vehicles.find((v) => v.id === vehicleId)?.ownership === 'own';
+  const effPksId = pksId ?? (mills.length === 1 ? mills[0]!.id : null);
+  const editTicket = tickets.find((x) => x.uuid === editing) ?? null;
+  const setLoad = (uuid: string, patch: Partial<Pick<SpbTicket, 'loadBunches' | 'loadLooseKg'>>) =>
+    setTickets((cur) => cur.map((c) => (c.uuid === uuid ? { ...c, ...patch } : c)));
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [scanning, setScanning] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -85,7 +107,17 @@ export default function NewSpbScreen() {
       setLastScan(t('transport.scanInvalid'));
       return;
     }
-    addTicket({ uuid: qr.uuid, ticketNo: qr.ticketNo, blockCode: qr.blockCode, tphCode: qr.tphCode, bunches: qr.bunches, estKg: qr.estKg });
+    addTicket({
+      uuid: qr.uuid,
+      ticketNo: qr.ticketNo,
+      blockCode: qr.blockCode,
+      tphCode: qr.tphCode,
+      bunches: qr.bunches,
+      estKg: qr.estKg,
+      looseFruitKg: qr.looseFruitKg,
+      loadBunches: qr.bunches,
+      loadLooseKg: qr.looseFruitKg,
+    });
   };
 
   const save = async () => {
@@ -94,7 +126,17 @@ export default function NewSpbScreen() {
       const r = saveSpb(
         db,
         await services.txContext(),
-        { workDate, vehicleId: vehicleId ?? 0, driverName: driver, destination, parentSpbUuid: parentSpb?.mobileUuid ?? null, tickets },
+        {
+          workDate,
+          vehicleId: vehicleId ?? 0,
+          driverName: ownVehicle ? (drivers.find((d) => d.id === driverEmployeeId)?.name ?? '') : driver,
+          driverEmployeeId: ownVehicle ? driverEmployeeId : null,
+          pksId: effPksId,
+          destination,
+          parentSpbUuid: parentSpb?.mobileUuid ?? null,
+          transferPoint: parentSpb ? transferPoint : null,
+          tickets,
+        },
         photos,
         services.device.deviceShort,
         afdelingIds,
@@ -124,7 +166,33 @@ export default function NewSpbScreen() {
         </View>
       )}
       <Card padded>
-        <TextField label={t('transport.driver')} value={driver} onChangeText={setDriver} autoCapitalize="words" />
+        {ownVehicle ? (
+          <>
+            <Txt style={{ fontWeight: '700' }}>{t('transport.driverEmployee')}</Txt>
+            {drivers.length === 0 ? (
+              <Txt>{t('transport.noDriver')}</Txt>
+            ) : (
+              <View style={styles.wrap}>
+                {drivers.map((d) => (
+                  <Chip key={d.id} label={d.name} selected={d.id === driverEmployeeId} onPress={() => setDriverEmployeeId(d.id)} />
+                ))}
+              </View>
+            )}
+          </>
+        ) : (
+          <TextField label={t('transport.driver')} value={driver} onChangeText={setDriver} autoCapitalize="words" />
+        )}
+        {mills.length > 0 && (
+          <>
+            <Txt style={{ fontWeight: '700' }}>{t('transport.pks')}</Txt>
+            <View style={styles.wrap}>
+              {mills.map((m) => (
+                <Chip key={m.id} label={m.name} selected={m.id === effPksId} onPress={() => setPksId(m.id)} />
+              ))}
+            </View>
+          </>
+        )}
+        {parentSpb && <TextField label={t('transport.transferPoint')} value={transferPoint} onChangeText={setTransferPoint} />}
         <Txt style={{ fontWeight: '700' }}>{t('transport.destination')}</Txt>
         <View style={styles.wrap}>
           <Chip label={t('transport.internal_mill')} selected={destination === 'internal_mill'} onPress={() => setDestination('internal_mill')} />
@@ -146,10 +214,14 @@ export default function NewSpbScreen() {
               key={tk.uuid}
               icon="ticket-confirmation"
               label={tk.ticketNo}
-              description={`${tk.blockCode} ${tk.tphCode} · ${tk.bunches} jjg · ${Math.round(tk.estKg)} kg`}
+              description={`${tk.blockCode} ${tk.tphCode} · ${
+                tk.bunches > 0 && tk.loadBunches < tk.bunches
+                  ? t('transport.loadPartial', { loaded: tk.loadBunches, total: tk.bunches })
+                  : `${tk.loadBunches} jjg`
+              } · ${Math.round(tk.estKg)} kg`}
               last={i === tickets.length - 1}
-              onPress={() => setTickets((cur) => cur.filter((c) => c.uuid !== tk.uuid))}
-              value={t('transport.remove')}
+              onPress={() => setEditing(tk.uuid)}
+              value={t('transport.edit')}
             />
           ))}
         </Card>
@@ -187,11 +259,53 @@ export default function NewSpbScreen() {
                 onPress={() =>
                   tickets.some((c) => c.uuid === x.mobileUuid)
                     ? setTickets((cur) => cur.filter((c) => c.uuid !== x.mobileUuid))
-                    : addTicket({ uuid: x.mobileUuid, ticketNo: x.ticketNo, blockCode: x.blockCode, tphCode: x.tphCode, bunches: totalBunches(x), estKg: x.estKg })
+                    : addTicket({
+                        uuid: x.mobileUuid,
+                        ticketNo: x.ticketNo,
+                        blockCode: x.blockCode,
+                        tphCode: x.tphCode,
+                        bunches: totalBunches(x),
+                        estKg: x.estKg,
+                        looseFruitKg: x.looseFruitKg,
+                        loadBunches: totalBunches(x),
+                        loadLooseKg: x.looseFruitKg,
+                      })
                 }
               />
             ))}
           </Card>
+        )}
+      </Sheet>
+      <Sheet visible={editTicket != null} title={t('transport.load', { no: editTicket?.ticketNo ?? '' })} onClose={() => setEditing(null)}>
+        {editTicket && (
+          <>
+            <NumberStepper
+              label={t('transport.loadBunches')}
+              value={editTicket.loadBunches}
+              onChange={(n) => setLoad(editTicket.uuid, { loadBunches: editTicket.bunches > 0 ? Math.min(n, editTicket.bunches) : n })}
+              large
+            />
+            {editTicket.loadLooseKg != null && (
+              <NumberStepper
+                label={t('transport.loadLoose')}
+                value={editTicket.loadLooseKg}
+                onChange={(n) =>
+                  setLoad(editTicket.uuid, { loadLooseKg: editTicket.looseFruitKg != null ? Math.min(n, editTicket.looseFruitKg) : n })
+                }
+                step={0.5}
+                decimal
+              />
+            )}
+            <Button
+              kind="outline"
+              icon="delete"
+              label={t('transport.remove')}
+              onPress={() => {
+                setTickets((cur) => cur.filter((c) => c.uuid !== editTicket.uuid));
+                setEditing(null);
+              }}
+            />
+          </>
         )}
       </Sheet>
       <CameraCapture

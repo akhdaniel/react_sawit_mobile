@@ -12,17 +12,25 @@ import { StatusPill } from '@/components/StatusPill';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { canCorrect, ticketView } from '@/db/repositories/harvest';
+import { latestConfirmFor, validateContinueTicket } from '@/db/repositories/verification';
 import { harvestTicket } from '@/db/schema';
+import { useSession } from '@/features/auth/session-store';
+import { reasonLabel } from '@/features/common/reason';
+import { DocumentStatus } from '@/features/entry/DocumentStatus';
 import { totalBunches } from '@/features/harvest/calc';
 import { encodeTicketQr } from '@/features/harvest/qr';
+import { continueTicket } from '@/features/harvest/stage';
 import { printWithSavedPrinter, PrinterNotConfiguredError } from '@/features/transport/print';
 import { buildTicketReceipt } from '@/features/transport/receipts';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
 
 export default function HarvestTicketScreen() {
-  const { db } = useServices();
+  const refresh = useRefresh();
+  const services = useServices();
+  const { db } = services;
   const { id, fresh } = useLocalSearchParams<{ id: string; fresh?: string }>();
   const tk = useTableQuery(['harvest_ticket', 'spb_line', 'spb'], () => ticketView(db, id));
   const corrected = useTableQuery(['harvest_ticket'], () => !canCorrect(db, id));
@@ -30,11 +38,16 @@ export default function HarvestTicketScreen() {
     tk?.correctionOf ? (db.select({ n: harvestTicket.ticketNo }).from(harvestTicket).where(eq(harvestTicket.mobileUuid, tk.correctionOf)).get()?.n ?? null) : null,
   );
 
+  const confirm = useTableQuery(['stage_confirm', id], () => latestConfirmFor(db, id));
+  const canContinue = useTableQuery(['stage_confirm', 'harvest_ticket', id], () => validateContinueTicket(db, id) === null);
+  const verifier = useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_panen' || r === 'kerani_panen'));
+
   const [printing, setPrinting] = useState(false);
+  const [continuing, setContinuing] = useState(false);
 
   if (!tk) {
     return (
-      <Screen title={t('harvest.detail')} back>
+      <Screen refresh={refresh} title={t('harvest.detail')} back>
         <Txt>—</Txt>
       </Screen>
     );
@@ -48,6 +61,7 @@ export default function HarvestTicketScreen() {
     bunches: totalBunches(tk),
     estKg: tk.estKg,
     workDate: tk.workDate,
+    looseFruitKg: tk.looseFruitKg,
   });
 
   const print = async () => {
@@ -79,8 +93,24 @@ export default function HarvestTicketScreen() {
     }
   };
 
+  const doContinue = async () => {
+    setContinuing(true);
+    try {
+      const r = continueTicket(db, await services.txContext(), tk.mobileUuid);
+      Alert.alert(t('harvest.continue'), r.ok ? t('harvest.continueSaved') : t(`harvest.continueError.${r.code}`));
+    } finally {
+      setContinuing(false);
+    }
+  };
+
+  const askContinue = () =>
+    Alert.alert(t('harvest.continueTitle'), t('harvest.continueConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('harvest.continue'), onPress: () => void doContinue() },
+    ]);
+
   return (
-    <Screen title={tk.ticketNo} subtitle={fresh ? t('harvest.saved', { no: tk.ticketNo }) : t('harvest.detail')} back>
+    <Screen refresh={refresh} title={tk.ticketNo} subtitle={fresh ? t('harvest.saved', { no: tk.ticketNo }) : t('harvest.detail')} back>
       <Card padded style={{ alignItems: 'center' }}>
         <View style={styles.qr}>
           <QRCode value={qr} size={240} ecl="M" />
@@ -91,6 +121,12 @@ export default function HarvestTicketScreen() {
           <StatusPill label={tk.transported ? t('harvest.transported') : t('harvest.notTransported')} tone={tk.transported ? 'success' : 'neutral'} />
           <StatusPill label={t(`status.${tk.status}`)} tone="primary" />
           {corrected && <StatusPill label={t('harvest.correctedBy')} tone="danger" />}
+          {confirm && (
+            <StatusPill
+              label={t(`harvest.continueState.${confirm.status === 'draft' ? 'queued' : confirm.status}`, { reason: reasonLabel(confirm.rejectReason) })}
+              tone={confirm.status === 'rejected' ? 'danger' : confirm.status === 'posted' ? 'success' : 'warning'}
+            />
+          )}
         </View>
       </Card>
       <Card>
@@ -102,9 +138,14 @@ export default function HarvestTicketScreen() {
         <ListRow icon="grain" tone="accent" label={t('harvest.looseFruit')} value={String(tk.looseFruitKg)} last={!originalNo} />
         {originalNo && <ListRow icon="history" tone="danger" label={t('harvest.correctionOf', { no: originalNo })} last />}
       </Card>
+      <DocumentStatus mobileUuid={tk.mobileUuid} status={tk.status} />
+      {verifier && canContinue && (
+        <Button icon="check-decagram" label={t('harvest.continue')} busy={continuing} onPress={askContinue} />
+      )}
       <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/harvest/entry/[id]', params: { id: tk.mobileUuid } })} />
       <Button kind="outline" icon="printer" label={t('harvest.print')} busy={printing} onPress={() => void print()} />
-      {!corrected && (
+      {/* Tiket yang sudah dimuat SPB tidak bisa dikoreksi (server menolak ticket_already_transported). */}
+      {!corrected && !tk.transported && (
         <Button
           kind={tk.status === 'rejected' ? 'primary' : 'outline'}
           icon="pencil"

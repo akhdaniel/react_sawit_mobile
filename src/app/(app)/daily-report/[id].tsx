@@ -13,11 +13,13 @@ import { useTableQuery } from '@/db/provider';
 import type { DailySummary } from '@/db/repositories/daily-report';
 import { dailyReport, gang, photo } from '@/db/schema';
 import { SavedEntryNotice } from '@/features/entry/SavedEntryNotice';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, radius, spacing } from '@/theme';
 
 export default function DailyReportEntryScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const { id } = useLocalSearchParams<{ id: string }>();
   const row = useTableQuery(['daily_report'], () => db.select().from(dailyReport).where(eq(dailyReport.mobileUuid, id)).get() ?? null);
@@ -31,7 +33,7 @@ export default function DailyReportEntryScreen() {
 
   if (!row || !refs) {
     return (
-      <Screen title={t('report.title')} back>
+      <Screen refresh={refresh} title={t('report.title')} back>
         <Txt>{t('entry.unknown')}</Txt>
       </Screen>
     );
@@ -40,7 +42,7 @@ export default function DailyReportEntryScreen() {
   const a = summary.attendance;
 
   return (
-    <Screen title={t('report.title')} subtitle={row.date} back>
+    <Screen refresh={refresh} title={t('report.title')} subtitle={row.date} back>
       <SavedEntryNotice status={row.status} savedAt={row.createdTrustedAt}>
         {row.correctionOf && <StatusPill label={t('report.savedCorrection')} tone="warning" />}
       </SavedEntryNotice>

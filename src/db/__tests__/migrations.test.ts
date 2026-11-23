@@ -15,9 +15,9 @@ describe('migrasi', () => {
     expect(tables).toEqual(
       [
         'activity', 'afdeling', 'app_meta', 'approval_decision', 'approval_inbox', 'assignment', 'attendance', 'block',
-        'daily_report', 'doc_sequence', 'dosage_rule', 'employee', 'estate', 'gang', 'harvest_ticket',
-        'material_usage', 'penalty_rule', 'photo', 'product', 'spb', 'spb_line', 'sync_cursor', 'tph',
-        'upkeep', 'vehicle', 'work_plan',
+        'daily_report', 'doc_sequence', 'dosage_rule', 'employee', 'estate', 'fertilization_ticket', 'fertilization_verification_queue', 'gang', 'harvest_ticket', 'maintenance_ticket', 'maintenance_verification_queue',
+        'harvest_rate', 'material_usage', 'photo', 'pks', 'product', 'spb', 'spb_line', 'sub_blok', 'sync_cursor', 'tph',
+        'stage_confirm', 'tx_document', 'upkeep', 'vehicle', 'verification_queue', 'work_plan',
       ].sort(),
     );
   });
@@ -25,8 +25,8 @@ describe('migrasi', () => {
   it('memasang trigger append-only untuk setiap tabel transaksi', () => {
     const { sqlite } = createTestDb();
     const n = (sqlite.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger'").get() as { n: number }).n;
-    // 8 tabel × 4 trigger + 3 spb_line + 2 photo
-    expect(n).toBe(37);
+    // 11 tabel × 4 trigger + 3 spb_line + 2 photo
+    expect(n).toBe(49);
   });
 
   it('idempoten: migrasi ulang pada DB yang sama tidak mengulang apa pun', () => {

@@ -9,17 +9,26 @@ import { Screen } from '@/components/Screen';
 import { Txt } from '@/components/Txt';
 import { getPendingSummary, PENDING_WATCH_TABLES } from '@/db/repositories/pending';
 import { useTableQuery } from '@/db/provider';
+import { pendingVerificationCount } from '@/db/repositories/verification';
 import { useSession } from '@/features/auth/session-store';
 import { menuForRoles } from '@/features/menu/menu';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
 
 export default function HomeScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const user = useSession((s) => s.user);
   const items = user ? menuForRoles(user.roles) : [];
   const pending = useTableQuery(PENDING_WATCH_TABLES, () => getPendingSummary(db).total);
+  const toVerify = useTableQuery(['verification_queue', 'fertilization_verification_queue', 'maintenance_verification_queue', 'stage_confirm'], () => pendingVerificationCount(db));
+  const badgeOf = (key: string) => {
+    if (key === 'sync' && pending > 0) return String(pending);
+    if (key === 'verification' && toVerify > 0) return String(toVerify);
+    return undefined;
+  };
 
   const hero = user && (
     <View style={styles.profile}>
@@ -36,7 +45,7 @@ export default function HomeScreen() {
   );
 
   return (
-    <Screen title={t('app.name')} hero={hero}>
+    <Screen refresh={refresh} title={t('app.name')} hero={hero}>
       <SectionTitle>{t('home.menu')}</SectionTitle>
       {items.length === 0 && <Txt>{t('home.noMenu')}</Txt>}
       <Card>
@@ -46,7 +55,7 @@ export default function HomeScreen() {
             icon={m.icon as IconName}
             tone={i % 2 === 0 ? 'primary' : 'accent'}
             label={t(m.label)}
-            badge={m.key === 'sync' && pending > 0 ? String(pending) : undefined}
+            badge={badgeOf(m.key)}
             last={i === items.length - 1}
             onPress={() => (m.route ? router.push(m.route) : router.push({ pathname: '/module/[key]', params: { key: m.key } }))}
           />

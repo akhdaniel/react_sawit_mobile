@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
 
 import { pendingInbox } from '@/db/repositories/approval';
+import { pendingFertilizationVerifications, pendingVerifications } from '@/db/repositories/verification';
 import { applyMasterChanges, getCursor } from '@/db/repositories/master';
 import { getMeta } from '@/db/repositories/meta';
 import { attendance, block, harvestTicket, photo, workPlan } from '@/db/schema';
 import { AuthRequiredError } from '@/sync/api-client';
-import type { MasterResponse } from '@/sync/contract';
+import type { FertilizationVerificationItem, MasterResponse, VerificationItem } from '@/sync/contract';
 import { runSync, syncNow, type SyncApi, type SyncDeps } from '@/sync/engine';
 import { ApiError, NetworkError } from '@/sync/http';
 import { createTestDb } from '@/test/db';
@@ -13,6 +14,46 @@ import { attendanceRow, harvestTicketRow, photoRow } from '@/test/fixtures';
 
 const ST = '2026-10-18T09:00:00.000Z';
 const blk = (id: number) => ({ id, code: `B${id}`, afdeling_id: 1, ha: 30, planting_year: 2010, status: 'TM' as const, bjr_kg: 18.5, polygon_geojson: null });
+const queued = (core_ticket_id: number): VerificationItem => ({
+  core_ticket_id,
+  name: `AU1-261018-K3ZQ-000${core_ticket_id}`,
+  work_date: '2026-10-18',
+  stage: 'Draft',
+  block_code: 'B1',
+  tph_code: 'TPH-01',
+  sub_blok_name: null,
+  harvester_id: 7,
+  harvester_name: 'Pemanen',
+  gang_name: null,
+  ripe: 20,
+  unripe: 0,
+  rotten: 0,
+  empty_bunch: 0,
+  long_stalk: 0,
+  loose_fruit_kg: 2.5,
+  is_late_entry: false,
+  has_photo: false,
+  mobile_uuid: null,
+  created_by: 'Kerani',
+});
+const fertilizationQueued = (core_ticket_id: number): FertilizationVerificationItem => ({
+  core_ticket_id,
+  name: `PPK/2026/${core_ticket_id}`,
+  work_date: '2026-10-18',
+  stage: 'Draft',
+  block_code: 'B1',
+  sub_blok_name: null,
+  worker_id: 8,
+  worker_name: 'Pekerja Rawat',
+  gang_name: null,
+  fertilizer_name: 'Urea',
+  method: 'manual',
+  application_round: 1,
+  tree_count: 100,
+  qty_kg: 150,
+  mobile_uuid: null,
+  created_by: 'Kerani Rawat',
+});
 const masterPage = (cursor: string, ids: number[], has_more = false): MasterResponse => ({
   cursor,
   server_time: ST,
@@ -50,6 +91,10 @@ function fakeApi(over: Partial<SyncApi> = {}) {
       calls.push(`approvals:${afd}`);
       return { items: [{ target_uuid: '11111111-2222-4333-8444-555555555555', target_type: 'attendance', summary: 'x', flags: ['outside_afdeling'] }] };
     },
+    async getVerifications() {
+      calls.push('verifications');
+      return { items: [queued(1), queued(2)], fertilization_items: [fertilizationQueued(1)], maintenance_items: [] };
+    },
     ...over,
   };
   return { api, calls };
@@ -80,7 +125,7 @@ describe('runSync', () => {
     const r = await runSync(deps(db, api, { onStep: (s) => steps.push(s) }));
 
     expect(r.ok).toBe(true);
-    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'heartbeat']);
+    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'verifications', 'heartbeat']);
     expect(calls).toEqual(['push:2', 'photo', 'status:2', 'master:', 'workplan:2026-10-18', 'heartbeat:0']);
     expect(r.push).toMatchObject({ sent: 2, accepted: 2 });
     expect(db.select().from(attendance).get()?.status).toBe('accepted');
@@ -99,6 +144,28 @@ describe('runSync', () => {
     expect(calls.filter((c) => c.startsWith('approvals'))).toEqual(['approvals:1', 'approvals:2']);
     expect(r.approvals.items).toBe(2);
     expect(pendingInbox(db)).toHaveLength(1); // target sama → satu baris (afdeling terakhir)
+  });
+
+  it('mandor/kerani: antrean verifikasi panen dan pemupukan diganti dengan data server terbaru', async () => {
+    const { db } = createTestDb();
+    const { api, calls } = fakeApi();
+    const r = await runSync(deps(db, api, { verificationEnabled: true }));
+    expect(calls).toContain('verifications');
+    expect(r.verifications).toEqual({ items: 3 });
+    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1, 2]);
+    expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
+
+    const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)], fertilization_items: [], maintenance_items: [] }) });
+    await runSync(deps(db, later.api, { verificationEnabled: true }));
+    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(pendingFertilizationVerifications(db)).toEqual([]);
+  });
+
+  it('peran lain: antrean verifikasi tidak ditarik', async () => {
+    const { db } = createTestDb();
+    const { api, calls } = fakeApi();
+    await runSync(deps(db, api));
+    expect(calls).not.toContain('verifications');
   });
 
   it('offline: berhenti di langkah pertama, data tetap sent untuk dikirim ulang, last_sync_at tidak berubah', async () => {

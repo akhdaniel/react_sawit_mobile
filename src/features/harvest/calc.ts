@@ -1,8 +1,11 @@
 /**
  * Kalkulasi panen (murni, diuji unit):
  * - est_kg = (matang + mentah + busuk) × BJR blok
- * - estimasi premi dari activity.rate sesuai wage_basis, dikurangi denda (penalty_rule)
+ * - estimasi premi dari tarif panen ERP (harvest_rate), rumus sama dengan tiket panen ERP:
+ *   baris tarif per mutu × kelas medan sub blok; basis per kg = janjang × BJR; brondolan dalam kg.
  */
+import type { HarvestRateLine } from '../../db/schema/master';
+
 export interface BunchCounts {
   ripe: number;
   unripe: number;
@@ -24,52 +27,119 @@ export function estKg(c: Pick<BunchCounts, 'ripe' | 'unripe' | 'rotten'>, bjrKg:
   return round2(totalBunches(c) * bjrKg);
 }
 
-/** Kode penalty_rule yang dipakai untuk komponen hitungan tiket. */
-export const PENALTY_CODES = {
-  unripe: 'MENTAH',
-  longStalk: 'TGKPJG',
-} as const;
-
-export type WageBasis = 'daily' | 'per_ha' | 'per_tree' | 'per_bunch';
-
-export interface PremiLine {
-  code: string;
-  count: number;
-  amount: number;
-}
-
-export interface PremiEstimate {
-  basis: WageBasis | null;
-  gross: number;
-  penalty: number;
-  net: number;
-  penalties: PremiLine[];
+export interface HarvestRate {
+  id: number;
+  estateId: number | null;
+  employeeType: string | null;
+  dateFrom: string;
+  dateTo: string | null;
+  lines: HarvestRateLine[];
 }
 
 /**
- * Estimasi premi pemanen untuk satu tiket.
- * - per_bunch: rate × janjang matang (mentah/busuk tidak dibayar)
- * - daily: rate (upah harian, tidak bergantung jumlah)
- * - per_ha / per_tree: tidak berlaku untuk tiket panen → 0
+ * Tarif aktif paling spesifik pada tanggal tsb (sama dengan ERP): estate terisi mengalahkan kosong,
+ * lalu tipe karyawan terisi mengalahkan kosong, lalu tanggal mulai terbaru.
  */
-export function premiEstimate(
-  c: BunchCounts,
-  activity: { wageBasis: WageBasis; rate: number } | null,
-  penaltyAmounts: ReadonlyMap<string, number>,
-): PremiEstimate {
-  let gross = 0;
-  if (activity?.wageBasis === 'per_bunch') gross = activity.rate * c.ripe;
-  else if (activity?.wageBasis === 'daily') gross = activity.rate;
+export function findRate<R extends HarvestRate>(
+  rates: readonly R[],
+  ctx: { workDate: string; estateId: number | null; employeeType: string | null },
+): R | null {
+  const candidates = rates.filter(
+    (r) =>
+      r.dateFrom <= ctx.workDate &&
+      (!r.dateTo || r.dateTo >= ctx.workDate) &&
+      (r.estateId == null || r.estateId === ctx.estateId) &&
+      (r.employeeType == null || r.employeeType === ctx.employeeType),
+  );
+  const key = (r: R) => [r.estateId != null ? 1 : 0, r.employeeType != null ? 1 : 0, r.dateFrom] as const;
+  candidates.sort((a, b) => {
+    const [ka, kb] = [key(a), key(b)];
+    return kb[0] - ka[0] || kb[1] - ka[1] || kb[2].localeCompare(ka[2]);
+  });
+  return candidates[0] ?? null;
+}
 
-  const penalties: PremiLine[] = [];
-  const add = (code: string, count: number) => {
-    const unit = penaltyAmounts.get(code);
-    if (unit != null && count > 0) penalties.push({ code, count, amount: unit * count });
-  };
-  add(PENALTY_CODES.unripe, c.unripe);
-  add(PENALTY_CODES.longStalk, c.longStalk);
-  const penalty = penalties.reduce((s, p) => s + p.amount, 0);
-  return { basis: activity?.wageBasis ?? null, gross: round2(gross), penalty: round2(penalty), net: round2(gross - penalty), penalties };
+/** Baris tarif untuk satu mutu: baris kelas medan sub blok didahulukan, lalu baris tanpa kelas medan. */
+export function findRateLine(
+  rate: HarvestRate,
+  grade: HarvestRateLine['grade'],
+  lineType: HarvestRateLine['line_type'],
+  terrainClassId: number | null,
+): HarvestRateLine | null {
+  const lines = rate.lines.filter((l) => l.grade === grade && l.line_type === lineType && l.scope === 'all');
+  if (terrainClassId != null) {
+    const exact = lines.find((l) => l.terrain_class_id === terrainClassId);
+    if (exact) return exact;
+  }
+  return lines.find((l) => l.terrain_class_id == null) ?? null;
+}
+
+export interface WageLine {
+  grade: HarvestRateLine['grade'];
+  lineType: HarvestRateLine['line_type'];
+  basis: HarvestRateLine['basis'];
+  bunches: number;
+  bjrKg: number;
+  quantity: number;
+  unit: 'bunch' | 'kg';
+  amount: number;
+  /** Premi positif, denda negatif. */
+  subtotal: number;
+}
+
+export interface PremiEstimate {
+  /** false = belum ada tarif panen aktif untuk pemanen/tanggal ini. */
+  hasRate: boolean;
+  premium: number;
+  penalty: number;
+  net: number;
+  lines: WageLine[];
+}
+
+const GRADE_COUNTS: [HarvestRateLine['grade'], keyof BunchCounts | null][] = [
+  ['ripe', 'ripe'],
+  ['unripe', 'unripe'],
+  ['rotten', 'rotten'],
+  ['empty_bunch', 'emptyBunch'],
+  ['long_stalk', 'longStalk'],
+  ['loose_fruit', null],
+];
+
+/**
+ * Estimasi premi tiket. Premi lebih basis borong (scope 'over_basis') dihitung per hari di ERP,
+ * tidak di tiket.
+ */
+export function premiEstimate(c: BunchCounts, bjrKg: number, rate: HarvestRate | null, terrainClassId: number | null): PremiEstimate {
+  const lines: WageLine[] = [];
+  let premium = 0;
+  let penalty = 0;
+  if (rate) {
+    for (const [grade, field] of GRADE_COUNTS) {
+      for (const lineType of ['premium', 'penalty'] as const) {
+        const line = findRateLine(rate, grade, lineType, terrainClassId);
+        if (!line) continue;
+        const bunches = field ? c[field] : 0;
+        const perKg = grade === 'loose_fruit' || line.basis === 'per_kg';
+        const quantity = grade === 'loose_fruit' ? c.looseFruitKg : line.basis === 'per_kg' ? bunches * bjrKg : bunches;
+        if (!quantity) continue;
+        const value = quantity * line.amount;
+        if (lineType === 'premium') premium += value;
+        else penalty += value;
+        lines.push({
+          grade,
+          lineType,
+          basis: line.basis,
+          bunches,
+          bjrKg: field && line.basis === 'per_kg' ? bjrKg : 0,
+          quantity: round2(quantity),
+          unit: perKg ? 'kg' : 'bunch',
+          amount: line.amount,
+          subtotal: round2(lineType === 'premium' ? value : -value),
+        });
+      }
+    }
+  }
+  return { hasRate: rate != null, premium: round2(premium), penalty: round2(penalty), net: round2(premium - penalty), lines };
 }
 
 export function formatRupiah(n: number): string {

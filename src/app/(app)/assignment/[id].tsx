@@ -12,11 +12,13 @@ import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { activity, assignment, block, employee, workPlan } from '@/db/schema';
 import { SavedEntryNotice } from '@/features/entry/SavedEntryNotice';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { spacing } from '@/theme';
 
 export default function AssignmentEntryScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const { id } = useLocalSearchParams<{ id: string }>();
   const row = useTableQuery(['assignment'], () => db.select().from(assignment).where(eq(assignment.mobileUuid, id)).get() ?? null);
@@ -32,7 +34,7 @@ export default function AssignmentEntryScreen() {
 
   if (!row || !refs) {
     return (
-      <Screen title={t('assignment.title')} back>
+      <Screen refresh={refresh} title={t('assignment.title')} back>
         <Txt>{t('entry.unknown')}</Txt>
       </Screen>
     );
@@ -40,7 +42,7 @@ export default function AssignmentEntryScreen() {
   const planLabel = `${refs.act?.name ?? `#${row.activityId}`} · ${t('assignment.block')} ${refs.blk?.code ?? row.blockId}`;
 
   return (
-    <Screen title={t('assignment.title')} subtitle={row.workDate} back>
+    <Screen refresh={refresh} title={t('assignment.title')} subtitle={row.workDate} back>
       <SavedEntryNotice status={row.status} savedAt={row.createdTrustedAt} />
 
       <SectionTitle>{t('assignment.plan')}</SectionTitle>

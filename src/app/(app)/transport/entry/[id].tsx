@@ -12,16 +12,18 @@ import { StatusPill } from '@/components/StatusPill';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { spbLines } from '@/db/repositories/transport';
-import { harvestTicket, spb, vehicle } from '@/db/schema';
+import { spbLoadLines } from '@/db/repositories/transport';
+import { employee, harvestTicket, pks, spb, vehicle } from '@/db/schema';
 import { EntryPhotos } from '@/features/entry/EntryPhotos';
 import { SavedEntryNotice } from '@/features/entry/SavedEntryNotice';
 import { totalBunches } from '@/features/harvest/calc';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, radius, spacing } from '@/theme';
 
 export default function SpbEntryScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const { id } = useLocalSearchParams<{ id: string }>();
   const row = useTableQuery(['spb'], () => db.select().from(spb).where(eq(spb.mobileUuid, id)).get() ?? null);
@@ -30,23 +32,31 @@ export default function SpbEntryScreen() {
     row?.parentSpbUuid ? (db.select({ n: spb.spbNo }).from(spb).where(eq(spb.mobileUuid, row.parentSpbUuid)).get()?.n ?? null) : null,
   );
   const lines = useTableQuery(['spb_line', 'harvest_ticket'], () => {
-    const uuids = spbLines(db, id);
+    const rows = spbLoadLines(db, id);
+    const uuids = rows.map((r) => r.harvestTicketUuid);
     const known = new Map(
       (uuids.length ? db.select().from(harvestTicket).where(inArray(harvestTicket.mobileUuid, uuids)).all() : []).map((x) => [x.mobileUuid, x]),
     );
-    return uuids.map((u) => ({ uuid: u, ticket: known.get(u) ?? null }));
+    return rows.map((r) => {
+      const ticket = known.get(r.harvestTicketUuid) ?? null;
+      return { uuid: r.harvestTicketUuid, ticket, bunches: r.bunchCount ?? (ticket ? totalBunches(ticket) : 0), looseKg: r.looseFruitKg };
+    });
   });
+  const driverName = useTableQuery(['employee', 'spb'], () =>
+    row?.driverEmployeeId ? (db.select({ n: employee.name }).from(employee).where(eq(employee.id, row.driverEmployeeId)).get()?.n ?? null) : null,
+  );
+  const millName = useTableQuery(['pks', 'spb'], () => (row?.pksId ? (db.select({ n: pks.name }).from(pks).where(eq(pks.id, row.pksId)).get()?.n ?? null) : null));
 
   if (!row) {
     return (
-      <Screen title="SPB" back>
+      <Screen refresh={refresh} title="SPB" back>
         <Txt>{t('entry.unknown')}</Txt>
       </Screen>
     );
   }
 
   return (
-    <Screen title={row.spbNo} subtitle={row.workDate} back>
+    <Screen refresh={refresh} title={row.spbNo} subtitle={row.workDate} back>
       <SavedEntryNotice status={row.status} savedAt={row.createdTrustedAt}>
         {parentNo && <StatusPill label={t('transport.langsirOf', { no: parentNo })} tone="warning" />}
       </SavedEntryNotice>
@@ -56,7 +66,9 @@ export default function SpbEntryScreen() {
         <Chip label={plate || `#${row.vehicleId}`} selected />
       </View>
       <Card padded>
-        <TextField label={t('transport.driver')} value={row.driverName} editable={false} />
+        <TextField label={driverName ? t('transport.driverEmployee') : t('transport.driver')} value={driverName ?? row.driverName} editable={false} />
+        {millName && <TextField label={t('transport.pks')} value={millName} editable={false} />}
+        {row.transferPoint && <TextField label={t('transport.transferPoint')} value={row.transferPoint} editable={false} />}
         <Txt style={{ fontWeight: '700' }}>{t('transport.destination')}</Txt>
         <View style={styles.wrap}>
           <Chip label={t('transport.internal_mill')} selected={row.destination === 'internal_mill'} />
@@ -71,7 +83,11 @@ export default function SpbEntryScreen() {
             key={l.uuid}
             icon="ticket-confirmation"
             label={l.ticket?.ticketNo ?? l.uuid}
-            description={l.ticket ? `${totalBunches(l.ticket)} jjg · ${Math.round(l.ticket.estKg)} kg` : undefined}
+            description={
+              l.ticket && l.bunches < totalBunches(l.ticket)
+                ? t('transport.loadPartial', { loaded: l.bunches, total: totalBunches(l.ticket) })
+                : `${l.bunches} jjg${l.looseKg ? ` · brondolan ${l.looseKg} kg` : ''}`
+            }
             last={i === lines.length - 1}
           />
         ))}

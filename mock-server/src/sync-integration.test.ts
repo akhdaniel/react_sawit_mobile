@@ -125,7 +125,8 @@ describe('sync engine ↔ mock server', () => {
     assert.equal(db.select().from(schema.photo).get()!.uploadStatus, 'uploaded');
     assert.equal(store.photos.get(photoId)?.transactionUuid, okTicket.mobileUuid);
     assert.equal(db.select().from(schema.block).all().length, 40);
-    assert.equal(db.select().from(schema.employee).all().length, 200);
+    assert.equal(db.select().from(schema.employee).all().length, 206);
+    assert.equal(db.select().from(schema.harvestRate).all().length, 2);
     assert.ok(db.select().from(schema.workPlan).all().some((w) => w.date === today));
     assert.equal(store.heartbeats.get('and-sync-it')?.pending_count, 0);
 
@@ -137,6 +138,8 @@ describe('sync engine ↔ mock server', () => {
     assert.deepEqual(r2.errors, []);
     assert.equal(r2.status.posted, 2);
     assert.equal(ticket(okTicket.mobileUuid).status, 'posted');
+    // Dokumen ERP hasil posting tersimpan di HP.
+    assert.equal(db.select().from(schema.txDocument).all().find((d) => d.mobileUuid === okTicket.mobileUuid)?.state, 'draft');
     assert.equal(r2.master.upserted, 1);
     assert.equal(db.select().from(schema.block).where(eq(schema.block.id, 1)).get()!.bjrKg, 21);
 

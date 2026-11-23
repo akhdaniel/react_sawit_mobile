@@ -1,5 +1,5 @@
 /** Tiket panen tersimpan: form entry yang sama (blok, TPH, pemanen, janjang), tidak bisa diubah. */
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
@@ -11,11 +11,14 @@ import { Screen } from '@/components/Screen';
 import { StatusPill } from '@/components/StatusPill';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { canCorrect, ticketView } from '@/db/repositories/harvest';
-import { activity, block, penaltyRule } from '@/db/schema';
+import { canCorrect, ticketPremi, ticketView } from '@/db/repositories/harvest';
+import { subBlok } from '@/db/schema';
 import { EntryPhotos } from '@/features/entry/EntryPhotos';
 import { SavedEntryNotice } from '@/features/entry/SavedEntryNotice';
-import { formatRupiah, premiEstimate } from '@/features/harvest/calc';
+import { DocumentStatus } from '@/features/entry/DocumentStatus';
+import { formatRupiah } from '@/features/harvest/calc';
+import { PremiBreakdown } from '@/features/harvest/PremiBreakdown';
+import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { colors, spacing } from '@/theme';
@@ -23,26 +26,35 @@ import { colors, spacing } from '@/theme';
 const noop = () => {};
 
 export default function HarvestEntryScreen() {
+  const refresh = useRefresh();
   const { db } = useServices();
   const { id } = useLocalSearchParams<{ id: string }>();
   const tk = useTableQuery(['harvest_ticket', 'spb_line', 'spb'], () => ticketView(db, id));
   const correctable = useTableQuery(['harvest_ticket'], () => canCorrect(db, id));
-  const bjr = useTableQuery(['block', 'harvest_ticket'], () => (tk ? (db.select().from(block).where(eq(block.id, tk.blockId)).get()?.bjrKg ?? 0) : 0));
-  const harvestActivity = useTableQuery(['activity'], () => db.select().from(activity).where(eq(activity.kind, 'harvest')).orderBy(asc(activity.id)).get() ?? null);
-  const penalties = useTableQuery(['penalty_rule'], () => new Map(db.select().from(penaltyRule).all().map((p) => [p.code, p.amount])));
+  const estimate = useTableQuery(['block', 'harvest_ticket', 'harvest_rate', 'sub_blok', 'employee'], () =>
+    tk
+      ? ticketPremi(
+          db,
+          { workDate: tk.workDate, blockId: tk.blockId, subBlokId: tk.subBlokId, harvesterEmployeeId: tk.harvesterEmployeeId },
+          { ripe: tk.ripe, unripe: tk.unripe, rotten: tk.rotten, emptyBunch: tk.emptyBunch, longStalk: tk.longStalk, looseFruitKg: tk.looseFruitKg },
+        )
+      : null,
+  );
+  const subBlokCode = useTableQuery(['sub_blok', 'harvest_ticket'], () =>
+    tk?.subBlokId ? (db.select({ c: subBlok.code }).from(subBlok).where(eq(subBlok.id, tk.subBlokId)).get()?.c ?? null) : null,
+  );
 
-  if (!tk) {
+  if (!tk || !estimate) {
     return (
-      <Screen title={t('harvest.detail')} back>
+      <Screen refresh={refresh} title={t('harvest.detail')} back>
         <Txt>{t('entry.unknown')}</Txt>
       </Screen>
     );
   }
-  const counts = { ripe: tk.ripe, unripe: tk.unripe, rotten: tk.rotten, emptyBunch: tk.emptyBunch, longStalk: tk.longStalk, looseFruitKg: tk.looseFruitKg };
-  const premi = premiEstimate(counts, harvestActivity, penalties);
+  const { bjrKg: bjr, premi } = estimate;
 
   return (
-    <Screen title={tk.ticketNo} subtitle={tk.workDate} back>
+    <Screen refresh={refresh} title={tk.ticketNo} subtitle={tk.workDate} back>
       <SavedEntryNotice status={tk.status} savedAt={tk.createdTrustedAt}>
         {tk.isLateEntry && <StatusPill label={t('harvest.lateEntry')} tone="warning" />}
       </SavedEntryNotice>
@@ -55,6 +67,14 @@ export default function HarvestEntryScreen() {
       <View style={styles.grid}>
         <Chip label={tk.tphCode} selected />
       </View>
+      {subBlokCode && (
+        <>
+          <SectionTitle>{t('harvest.subBlok')}</SectionTitle>
+          <View style={styles.grid}>
+            <Chip label={subBlokCode} selected />
+          </View>
+        </>
+      )}
       <SectionTitle>{t('harvest.harvester')}</SectionTitle>
       <View style={styles.grid}>
         <Chip label={tk.harvesterName} selected />
@@ -85,7 +105,10 @@ export default function HarvestEntryScreen() {
             )}
           </View>
         </View>
+        <PremiBreakdown premi={premi} />
       </Card>
+
+      <DocumentStatus mobileUuid={tk.mobileUuid} status={tk.status} />
 
       <EntryPhotos transactionUuid={tk.mobileUuid} photoIds={tk.photoId ? [tk.photoId] : []} />
 

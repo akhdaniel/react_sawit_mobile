@@ -23,9 +23,10 @@ lalu dikirim ke Xerpium ERP (Odoo) saat sinkron.
 
 | Peran | Tugas utama | Menu yang tampil |
 |---|---|---|
-| Mandor panen | Absen & tugaskan pemanen, buat tiket panen, laporan harian | Absensi, Penugasan, Panen, Laporan harian, Sinkron |
-| Kerani panen | Catat hasil panen per TPH, bantu absensi | Absensi, Panen, Sinkron |
-| Mandor rawat | Absen & tugaskan pekerja rawat, catat perawatan & material, laporan harian | Absensi, Penugasan, Perawatan, Laporan harian, Sinkron |
+| Mandor panen | Absen & tugaskan pemanen, buat dan verifikasi tiket panen, laporan harian | Absensi, Penugasan, Panen, Verifikasi tiket, Laporan harian, Sinkron |
+| Kerani panen | Catat hasil panen per TPH, verifikasi tiket panen, bantu absensi | Absensi, Panen, Verifikasi tiket, Sinkron |
+| Mandor rawat | Absen & tugaskan pekerja rawat, buat dan verifikasi tiket pemupukan dan tiket perawatan, laporan harian | Absensi, Penugasan, Verifikasi tiket, Pemupukan, Perawatan, Laporan harian, Sinkron |
+| Kerani rawat | Catat dan verifikasi tiket pemupukan dan tiket perawatan, bantu absensi | Absensi, Verifikasi tiket, Pemupukan, Perawatan, Sinkron |
 | Kerani transport | Buat SPB angkut TBS ke PKS (scan QR tiket) | Transport / SPB, Sinkron |
 | Asisten | Setujui / tolak / minta koreksi item yang ditandai, laporan harian | Persetujuan, Laporan harian, Sinkron |
 
@@ -37,7 +38,9 @@ Menu ditentukan oleh peran akun yang diatur di ERP. Semua peran juga punya menu 
 flowchart TD
     S1["Server XSM / Odoo<br/>master data, rencana kerja"]:::srv --> A["Mandor: absensi & penugasan<br/>pagi, per kemandoran"]:::hp
     A --> P["Tiket panen<br/>mandor/kerani panen, per TPH"]:::hp
-    A --> R["Perawatan<br/>mandor rawat: HK, material"]:::hp
+    A --> R["Tiket perawatan<br/>mandor rawat: per pekerja, material"]:::hp
+    A --> F["Tiket pemupukan<br/>mandor rawat: per pekerja"]:::hp
+    F --> L
     P --> T["SPB angkut<br/>kerani transport: scan QR"]:::hp
     T --> L["Laporan harian<br/>mandor, tanda tangan"]:::hp
     R --> L
@@ -51,7 +54,8 @@ flowchart TD
 Ungu = dikerjakan di HP (bisa offline). Hijau = server / ERP.
 
 1. **Server → HP** (di kantor / Wi-Fi). HP menarik data induk: estate, afdeling, blok, TPH, karyawan, kemandoran,
-   kegiatan, aturan dosis, kendaraan. Ikut juga rencana kerja hari ini dan, untuk asisten, antrean approval.
+   kegiatan, aturan dosis, kendaraan. Ikut juga rencana kerja hari ini, antrean approval (asisten), dan antrean
+   verifikasi tiket panen (mandor panen, kerani panen).
    Jam server dipakai sebagai patokan waktu tepercaya.
 2. **Pagi — mandor.** Absen anak buah (foto + GPS), lalu tugaskan pekerja ke blok sesuai rencana kerja.
 3. **Siang — paralel.**
@@ -92,7 +96,7 @@ Siklus ini berulang setiap hari.
 
 ## 4. Panduan per peran
 
-### 4.1 Absensi (mandor, kerani panen)
+### 4.1 Absensi (mandor, kerani panen, kerani rawat)
 
 Menu **Absensi**, per kemandoran.
 
@@ -122,54 +126,137 @@ Menu **Penugasan → Penugasan baru**.
 
 Menu **Panen → Tiket baru**. Cukup tiga langkah:
 
-1. Pilih **TPH**. Blok terisi otomatis dari penugasan atau rencana kerja.
+1. Pilih **TPH**. Blok terisi otomatis dari penugasan atau rencana kerja. Bila blok punya lebih dari satu
+   **sub blok**, pilih sub bloknya (kelas medannya menentukan tarif premi); bila hanya satu, terisi otomatis.
 2. Pilih **pemanen**. Hanya yang sudah absen hadir; bisa juga dengan menempel kartu NFC.
-3. Isi **janjang matang**, lalu **Simpan tiket**.
+3. Isi **janjang matang**, lalu **Simpan tiket**, atau **Simpan & Lanjutkan** untuk sekaligus melanjutkan
+   tiket ke tahap verifikasi Anda (lihat *Lanjutkan* di bawah).
 
 Rincian lain bersifat opsional: mentah, busuk, janjang kosong, tangkai panjang, brondolan (kg).
 
 **Yang dihitung otomatis:**
 - **Estimasi berat** = (matang + mentah + busuk) × BJR blok.
-- **Estimasi premi** dikurangi denda mentah dan tangkai panjang.
+- **Estimasi premi** dari **tarif panen ERP** yang berlaku untuk estate, tipe karyawan pemanen, dan tanggal,
+  dengan rumus yang sama dengan tiket panen ERP: tarif per mutu (matang, mentah, tangkai panjang, brondolan, …)
+  sesuai kelas medan sub blok; tarif per kg dikali janjang × BJR. Rinciannya tampil di bawah angka premi.
+  Premi lebih basis borong dihitung per hari di ERP, tidak di HP. Bila tertulis *belum ada tarif panen aktif*,
+  sinkron di kantor atau hubungi asisten.
 - **Nomor tiket** dibuat offline, misalnya `AFD01-261018-K3ZQ-0007`.
 
 **Setelah disimpan:**
 - Tiket menampilkan **QR** untuk dipindai kerani transport, dan bisa **dicetak** ke printer thermal.
-- Tiket kedua untuk TPH + pemanen yang sama di hari yang sama otomatis ditandai **Susulan**.
+- Tiket kedua untuk TPH + sub blok + pemanen yang sama di hari yang sama otomatis ditandai **Susulan**
+  (termasuk bila tiket pertama diinput di ERP).
+- Setelah diposting, tiket menampilkan **Dokumen ERP**: nomor tiket panen ERP dan statusnya
+  (Draft → Terverifikasi kerani → Ditutup saat rekap upah disetujui).
 - Salah input → buka tiket → **Koreksi tiket**. Akan dibuat tiket baru bernomor baru; tiket lama tetap tercatat.
+
+**Lanjutkan** (sama dengan tombol Lanjutkan di form tiket panen ERP):
+- Buka tiket → **Lanjutkan**. Saat sinkron, tiket ERP maju satu tahap atas nama Anda:
+  Draft → **Verifikasi Mandor** (oleh mandor kemandoran tiket) → **Verifikasi Kerani Panen** (Terverifikasi).
+- Kerani yang menekan Lanjutkan sebelum mandor memverifikasi tidak ditolak: Lanjutkan-nya **menunggu**, lalu
+  diterapkan otomatis begitu mandor memverifikasi (dari HP atau ERP). Status di tiket:
+  *menunggu sinkron* → *menunggu giliran tahap Anda* → *diterapkan*.
+- Dua tahap harus oleh dua orang berbeda. Lanjutkan ditolak bila tiket batal, di luar kemandoran/afdeling Anda,
+  atau belum ada tarif panen aktif — alasannya tampil di tiket; Lanjutkan boleh diulang setelah masalahnya beres.
+- Mengembalikan tahap hanya bisa di ERP (asisten).
 
 **Layar daftar Panen** punya dua tampilan:
 - **Per tiket**: setiap tiket dengan status *Terangkut / Belum terangkut*.
 - **Per TPH**: total janjang, estimasi kg, brondolan, jumlah tiket & pemanen, dan janjang yang **belum terangkut**
   per TPH. Dipakai untuk memantau potensi restan.
 
+### 4.3a Verifikasi tiket (mandor dan kerani panen/rawat)
+
+Menu **Verifikasi tiket** berisi tiket panen, tiket pemupukan, dan tiket perawatan ERP yang tahap berikutnya milik Anda, **termasuk
+tiket dari HP lain** atau yang diinput di ERP (7 hari terakhir), dikelompokkan per jenis tiket:
+- **Mandor** (panen/rawat): tiket Draft dari kemandoran Anda, misalnya tiket yang diinput kerani.
+- **Kerani** (panen/rawat): tiket yang sudah diverifikasi mandor. Tiket pemupukan dan perawatan diverifikasi
+  **kerani rawat**, bukan kerani panen.
+
+Ketuk tiket untuk melihat rinciannya (janjang dan brondolan; pupuk, pokok, dan kg; atau jenis perawatan, hasil
+kerja, dan material; serta siapa yang menginput), lalu **Lanjutkan**. Antrean diperbarui setiap sinkron dan bisa dipakai tanpa sinyal; angka di menu beranda = jumlah tiket yang menunggu.
+Bila ada yang salah, jangan Lanjutkan — minta penginput membuat **Koreksi tiket**.
+
 ### 4.4 Transport / SPB (kerani transport)
 
 Menu **Transport / SPB → SPB baru**.
 
-1. Pilih kendaraan, isi nama sopir, pilih tujuan (PKS sendiri / mitra).
+1. Pilih kendaraan. Truk **sendiri**: pilih **sopir** dari daftar sopir karyawan. Truk **sewa**: ketik nama sopir.
+   Pilih **PKS tujuan** dan tujuan (PKS sendiri / mitra).
 2. Tambahkan tiket:
    - **Pindai QR** di tiket / HP mandor. Bisa dilakukan meskipun kedua HP offline.
    - Atau pilih dari daftar tiket yang belum terangkut di HP ini.
 3. Ambil **minimal 2 foto** muatan.
-4. Simpan. Total janjang dan kg dijumlahkan otomatis, dan nomor SPB dibuat offline.
+4. Bila tiket tidak terangkut seluruhnya, ketuk tiket di daftar lalu ubah **janjang/brondolan dimuat**.
+   Sisa janjang menjadi restan di TPH.
+5. Simpan. Total janjang dan kg dijumlahkan dari muatan, dan nomor SPB dibuat offline.
 
 **Aturan dan catatan:**
 - Satu tiket hanya boleh masuk satu SPB aktif.
-- **Langsir:** buat SPB lanjutan dari SPB induk.
+- **Langsir:** buat SPB lanjutan dari SPB induk, dan isi **titik muat** langsir.
+- Setelah diposting, SPB menampilkan **Dokumen ERP**: nomor SPB ERP, status (Berangkat → Diterima PKS),
+  dan **netto timbang** PKS.
 - Tiket hari ini yang belum masuk SPB adalah **potensi restan**. Peringatannya berubah merah setelah jam batas (default 16:00).
 - Struk SPB bisa dicetak beserta QR-nya.
 
-### 4.5 Perawatan & material (mandor rawat)
+### 4.5 Tiket perawatan (mandor rawat, kerani rawat)
 
-Menu **Perawatan → Perawatan baru**.
+Menu **Perawatan → Tiket perawatan baru**. Satu tiket untuk satu pekerja, sama seperti tiket perawatan di ERP.
 
-1. Pilih kegiatan, blok, dan pekerja yang hadir.
-2. Isi **HK** dan realisasi: luas (ha) atau jumlah pokok, sesuai jenis kegiatan. Foto opsional.
-3. Tambahkan material (pupuk / herbisida) dan jumlahnya.
+1. Pilih **kemandoran rawat**, **blok**, dan **sub blok** (bila blok punya lebih dari satu).
+2. Pilih **jenis perawatan** (Semprot gulma, Babat gawangan, Pruning, Kastrasi, dll.). Di bawahnya tertulis
+   dasar upahnya: per Ha, per pokok, atau per HK.
+3. Pilih **pekerja** yang sudah absen hadir di kemandoran itu.
+4. Isi hasil kerja. Kolom sesuai dasar upah tampil paling atas. Luas tidak boleh melebihi luas blok dan pokok
+   tidak boleh melebihi pokok blok. HK default 1 dan bisa diubah (mis. 0,5).
+5. **Tambah material** (herbisida, pestisida, umpan tikus, perata) lalu isi jumlahnya. Material mengikuti jenis
+   perawatan: **wajib** untuk Semprot gulma, Pengendalian hama, dan Pengendalian tikus; **tidak dipakai** untuk
+   pekerjaan manual (Babat gawangan, Garuk piringan, Dongkel anak kayu, Pruning, Kastrasi, Perawatan parit), dan
+   bagian Material tidak tampil; **opsional** untuk Lainnya. Batas material = dosis standar per Ha × luas.
+   Material berdosis butuh luas diisi. Material yang **melebihi dosis tidak bisa disimpan**, karena ERP juga tidak
+   akan bisa memverifikasinya. Pupuk dicatat di menu **Pemupukan**.
+6. Cuaca dan catatan opsional. Estimasi upah dihitung dari tarif perawatan ERP.
+7. **Simpan & pekerja berikutnya** mempertahankan blok, jenis perawatan, dan material; **Simpan tiket** untuk
+   selesai; atau **Simpan & Lanjutkan** untuk menyimpan sekaligus memverifikasi.
 
-Bila jumlah melebihi **batas dosis** (dosis per ha × luas + toleransi), item ditandai **over-dosis**.
-Catatan wajib diisi, dan item masuk antrean approval asisten.
+Setelah sinkron, tiket masuk ERP sebagai tiket perawatan **Draft** beserta materialnya. Nomor, status, dan tahap
+ERP tampil di detail tiket. Verifikasinya sama seperti tiket pemupukan (lihat 4.5a): Draft → **Verifikasi
+Mandor** (mandor rawat) → **Verifikasi Kerani** (kerani rawat; Terverifikasi), lewat tombol **Lanjutkan** di
+detail tiket atau di menu **Verifikasi tiket**. Saat Verifikasi Kerani, **semua material keluar dari gudang** dan
+upah dibekukan, jadi stok setiap material harus cukup dan tarif perawatan harus aktif.
+
+Salah input? Buka tiket lalu **Koreksi tiket**, selama tiket belum Terverifikasi. Setelah material keluar gudang,
+tombol Koreksi hilang dan perbaikannya lewat asisten di ERP.
+
+### 4.5a Tiket pemupukan (mandor rawat, kerani rawat)
+
+Menu **Pemupukan → Tiket pemupukan baru**. Satu tiket untuk satu pekerja, sama seperti tiket pemupukan di ERP.
+
+1. Pilih **kemandoran rawat**, **blok**, dan **sub blok** (bila blok punya lebih dari satu).
+2. Pilih **pupuk** dan **metode** (Manual, Mekanis, Drone). Dosis standar pupuk tampil di bawahnya.
+3. Pilih **pekerja** yang sudah absen hadir di kemandoran itu.
+4. Isi **pokok dipupuk** dan **pupuk ditabur (kg)**. Batas pupuk (dosis standar × pokok) dan status dosis
+   tampil langsung. Tiket yang **melebihi dosis tidak bisa disimpan**, karena ERP juga tidak akan bisa
+   memverifikasinya. Pokok dipupuk juga tidak boleh melebihi jumlah pokok blok.
+5. Ronde aplikasi, cuaca, dan catatan bersifat opsional. Estimasi upah dihitung dari tarif pemupukan ERP.
+6. Tekan **Simpan & pekerja berikutnya** untuk lanjut ke pekerja lain dengan blok, pupuk, dan metode yang sama,
+   **Simpan tiket** untuk selesai, atau **Simpan & Lanjutkan** untuk menyimpan sekaligus memverifikasi.
+
+Setelah sinkron, tiket masuk ERP sebagai tiket pemupukan **Draft**. Nomor, status, dan tahap ERP-nya tampil di
+detail tiket. Tahap verifikasinya sama seperti di ERP dan bisa dijalankan dari HP dengan tombol **Lanjutkan**
+(di detail tiket atau di menu **Verifikasi tiket**):
+
+Draft → **Verifikasi Mandor** (mandor rawat kemandoran tiket) → **Verifikasi Kerani** (kerani rawat; Terverifikasi).
+
+Saat Verifikasi Kerani, pupuk keluar dari gudang dan upah dibekukan, jadi stok gudang pupuk harus cukup dan tarif
+pemupukan harus aktif. Kalau tidak, Lanjutkan kerani ditolak dengan alasannya. Lanjutkan kerani yang dikirim
+sebelum mandor memverifikasi akan **menunggu**, lalu diterapkan otomatis begitu mandor melanjutkan. Verifikasi
+mandor dan kerani harus oleh orang yang berbeda.
+
+Salah input? Buka tiket lalu **Koreksi tiket**: tiket baru dikirim dan tiket ERP yang lama dibatalkan. Koreksi
+hanya bisa selama tiket belum Terverifikasi. Setelah pupuk keluar gudang, tombol Koreksi hilang dan perbaikannya
+lewat asisten di ERP.
 
 ### 4.6 Laporan harian (mandor, asisten)
 
@@ -201,6 +288,8 @@ Menu **Persetujuan**. Antrean diambil saat sinkron, lalu bisa diperiksa **offlin
 
 **Kapan sinkron berjalan:**
 - **Manual:** menu **Sinkron → Sinkron sekarang**, atau ketuk indikator di beranda.
+- **Tarik layar ke bawah** di beranda, daftar, dan detail (tidak di form isian): sinkron yang sama, lewat jaringan
+  apa pun termasuk data seluler. Paling cepat sekali per 10 detik; hasilnya tampil sebagai pesan singkat.
 - **Otomatis:** saat tersambung Wi-Fi dan ada data belum terkirim.
 - **Latar belakang:** kira-kira tiap jam, hanya lewat Wi-Fi.
 
@@ -219,7 +308,7 @@ Menu **Persetujuan**. Antrean diambil saat sinkron, lalu bisa diperiksa **offlin
 | Terkirim | Sudah dikirim; menunggu kepastian dari server |
 | Diterima | Server menerima data |
 | Ditolak | Server menolak; alasannya tampil. Buat **koreksi** (data baru), bukan mengubah yang lama. |
-| Diposting | Sudah dibukukan di ERP |
+| Diposting | Sudah dibukukan di ERP. Tiket panen dan SPB lalu menampilkan **Dokumen ERP** (nomor, status ERP, netto timbang) yang terus diperbarui saat sinkron selama 14 hari. |
 
 Data yang sudah terkirim **tidak bisa diubah atau dihapus**. Perbaikan selalu berupa data koreksi baru,
 sehingga riwayatnya bisa diaudit.
@@ -257,6 +346,7 @@ di `mock-server/src/seed.ts`.
 | `mandor.panen` | Slamet Riyadi | Mandor panen | 1 |
 | `kerani.panen` | Rina Marlina | Kerani panen | 1 |
 | `mandor.rawat` | Joko Susilo | Mandor rawat | 1 |
+| `kerani.rawat` | Wulan Sari | Kerani rawat | 1 |
 | `kerani.transport` | Dedi Kurniawan | Kerani transport | 1, 2, 3 |
 | `asisten` | Ir. Hendra Gunawan | Asisten | 1 |
 | `asisten2` | Siti Aminah | Asisten | 2, 3 |
