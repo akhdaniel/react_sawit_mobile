@@ -623,6 +623,13 @@ export const id = {
     not_xsm: 'Alamat terjangkau tetapi bukan server Xerpium',
     invalid: 'URL server tidak valid',
     edit: 'Ketuk untuk mengganti',
+    sameServer: 'Server yang sama: data dan login di HP tetap.',
+    otherServer:
+      'Ini server lain. Untuk pindah, Anda akan keluar dan login ulang di server baru serta membuat PIN baru. Master data diunduh ulang; riwayat transaksi di HP tetap.',
+    pendingBlock: 'Masih ada {tx} transaksi dan {photos} foto yang belum terkirim ke server lama. Sinkronkan dulu sebelum pindah server.',
+    syncOld: 'Sinkron ke server lama',
+    switchLogin: 'Pindah server & login ulang',
+    switchConfirm: 'Keluar dari server lama dan pindah ke {url}? Anda perlu login ulang dan membuat PIN baru.',
   },
   printer: {
     title: 'Printer Bluetooth',

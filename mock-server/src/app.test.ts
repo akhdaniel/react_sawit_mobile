@@ -191,9 +191,12 @@ describe('auth', () => {
     assert.equal((await call('POST', '/auth/refresh', { refresh_token: t.refresh_token })).status, 401);
   });
 
-  it('server_time di setiap respons', async () => {
+  it('server_time dan server_id di setiap respons, termasuk error', async () => {
     const r = await call('GET', '/master');
     assert.ok(typeof r.json.server_time === 'string');
+    assert.equal(r.json.server_id, 'mock-server-db');
+    const refused = await call('POST', '/auth/refresh', { refresh_token: '' });
+    assert.equal(refused.json.server_id, 'mock-server-db');
   });
 });
 

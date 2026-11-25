@@ -14,16 +14,32 @@ import { HttpClient } from '@/sync/http';
 import { fakeFetch, ST, type FakeReply } from '@/test/fake-fetch';
 
 const user = (id: number) => ({ id, name: `User ${id}`, roles: ['mandor_panen'], afdeling_ids: [1] });
-const tokenReply = (id: number): FakeReply => ({
+const tokenReply = (id: number, serverId?: string): FakeReply => ({
   status: 200,
-  body: { access_token: 'a', refresh_token: 'r', expires_in: 3600, user: user(id), server_time: ST },
+  body: {
+    access_token: 'a',
+    refresh_token: 'r',
+    expires_in: 3600,
+    user: user(id),
+    server_time: ST,
+    ...(serverId ? { server_id: serverId } : {}),
+  },
 });
 
-function setup(reply: FakeReply | FakeReply[] = tokenReply(1), opts: { pending?: number; lastUserId?: number | null } = {}) {
+function setup(
+  reply: FakeReply | FakeReply[] = tokenReply(1),
+  opts: { pending?: number; lastUserId?: number | null; serverId?: string | null } = {},
+) {
   const kv = new MemoryKV();
   const f = fakeFetch(Array.isArray(reply) ? reply : [reply]);
   const api = new ApiClient(new HttpClient({ baseUrl: () => 'http://s', fetchFn: f.fn, retries: 0 }), new TokenStore(kv));
-  const state = { now: 1_000_000, pending: opts.pending ?? 0, lastUserId: opts.lastUserId ?? null };
+  const state = {
+    now: 1_000_000,
+    pending: opts.pending ?? 0,
+    lastUserId: opts.lastUserId ?? null,
+    serverId: opts.serverId ?? null,
+    resets: 0,
+  };
   const svc = new SessionService({
     kv,
     api,
@@ -36,9 +52,65 @@ function setup(reply: FakeReply | FakeReply[] = tokenReply(1), opts: { pending?:
     setLastUserId: (id) => {
       state.lastUserId = id;
     },
+    serverId: () => state.serverId,
+    setServerId: (id) => {
+      state.serverId = id;
+    },
+    resetLocalData: () => {
+      state.resets++;
+    },
   });
   return { svc, kv, calls: f.calls, state };
 }
+
+describe('SessionService pindah server', () => {
+  it('server_id dari login disimpan', async () => {
+    const { svc, state } = setup(tokenReply(1, 'db-a'));
+    await svc.login('a', 'b');
+    expect(state.serverId).toBe('db-a');
+    expect(state.resets).toBe(0);
+  });
+
+  it('login ke server lain ditolak selama ada data belum terkirim; sesi dan server lama tetap', async () => {
+    const { svc, kv, state } = setup(tokenReply(1, 'db-b'), { pending: 2, lastUserId: 1, serverId: 'db-a' });
+    await expect(svc.login('a', 'b')).rejects.toMatchObject({ code: 'pending_other_server' });
+    expect(await kv.get(TOKEN_KEYS.access)).toBeNull();
+    expect([state.serverId, state.lastUserId, state.resets]).toEqual(['db-a', 1, 0]);
+  });
+
+  it('login ke server lain tanpa pending → data dan PIN lama dihapus, walau id pengguna kebetulan sama', async () => {
+    const { svc, kv, state } = setup(tokenReply(1, 'db-b'), { lastUserId: 1, serverId: 'db-a' });
+    await kv.set(SESSION_KEYS.pin, '{"salt":"x","hash":"y"}');
+    const s = await svc.login('a', 'b');
+    expect(s.hasPin).toBe(false);
+    expect([state.serverId, state.lastUserId, state.resets]).toEqual(['db-b', 1, 1]);
+  });
+
+  it('server lama tanpa server_id dianggap server yang sama', async () => {
+    const { svc, state } = setup(tokenReply(1), { lastUserId: 1, serverId: 'db-a', pending: 3 });
+    await svc.login('a', 'b');
+    expect([state.serverId, state.resets]).toEqual(['db-a', 0]);
+  });
+
+  it('leaveServer ditolak bila ada data belum terkirim', async () => {
+    const { svc, kv, state } = setup(tokenReply(1, 'db-a'));
+    await svc.login('a', 'b');
+    state.pending = 1;
+    await expect(svc.leaveServer()).rejects.toMatchObject({ code: 'pending_data' });
+    expect(await kv.get(TOKEN_KEYS.access)).toBe('a');
+  });
+
+  it('leaveServer menghapus sesi, PIN, data lokal, pengguna dan server terakhir', async () => {
+    const { svc, kv, state } = setup(tokenReply(1, 'db-a'));
+    await svc.login('a', 'b');
+    await svc.setPin('1234');
+    await svc.leaveServer();
+    expect(await svc.restore()).toBeNull();
+    expect(await kv.get(TOKEN_KEYS.access)).toBeNull();
+    expect(await kv.get(SESSION_KEYS.pin)).toBeNull();
+    expect([state.serverId, state.lastUserId, state.resets]).toEqual([null, null, 1]);
+  });
+});
 
 describe('SessionService.login', () => {
   it('login online menyimpan token, profil, user terakhir; minta PIN', async () => {
@@ -67,11 +139,12 @@ describe('SessionService.login', () => {
     expect(await kv.get(TOKEN_KEYS.access)).toBeNull();
   });
 
-  it('ganti pengguna tanpa pending → PIN lama dihapus', async () => {
-    const { svc, kv } = setup(tokenReply(2), { pending: 0, lastUserId: 1 });
+  it('ganti pengguna tanpa pending → PIN lama dan data pengguna lama dihapus', async () => {
+    const { svc, kv, state } = setup(tokenReply(2), { pending: 0, lastUserId: 1 });
     await kv.set(SESSION_KEYS.pin, '{"salt":"x","hash":"y"}');
     const s = await svc.login('lain', 'pw');
     expect(s.hasPin).toBe(false);
+    expect(state.resets).toBe(1);
   });
 
   it('pengguna sama login ulang → PIN dipertahankan', async () => {

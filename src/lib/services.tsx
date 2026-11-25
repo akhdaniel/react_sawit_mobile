@@ -12,7 +12,7 @@ import JailMonkey from 'jail-monkey';
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
-import { resetMasterData } from '../db/repositories/master';
+import { resetMasterData, resetServerData } from '../db/repositories/master';
 import { deleteMeta, getMeta, META_KEYS, setMeta } from '../db/repositories/meta';
 import { getPendingSummary } from '../db/repositories/pending';
 import { useDb } from '../db/provider';
@@ -43,6 +43,10 @@ export interface AppServices {
   device: DeviceIdentity;
   getBaseUrl(): string;
   setBaseUrl(url: string): void;
+  /** server_id server yang datanya ada di HP (null: belum diketahui). */
+  getServerId(): string | null;
+  /** Pindah ke server lain: tolak bila ada data belum terkirim; sesi dan data server lama dihapus. */
+  switchServer(url: string): Promise<void>;
   /** Ambil posisi GPS dan perbarui status lokasi palsu. */
   refreshLocation(): Promise<FixResult>;
   /** Konteks anti-fraud untuk transaksi baru (posisi segar ≤ 60 dtk, trusted time, flag root). */
@@ -83,7 +87,18 @@ function createServices(db: AppDatabase): AppServices {
     else setMeta(db, META_KEYS.apiBaseUrl, parsed);
   };
 
-  const http = new HttpClient({ baseUrl: getBaseUrl, onServerTime: (iso) => clock.calibrate(iso) });
+  const getServerId = () => getMeta(db, META_KEYS.serverId);
+  const setServerId = (id: string | null) => (id ? setMeta(db, META_KEYS.serverId, id) : deleteMeta(db, META_KEYS.serverId));
+
+  const http = new HttpClient({
+    baseUrl: getBaseUrl,
+    onServerTime: (iso) => clock.calibrate(iso),
+    // HP yang belum mencatat server_id (versi lama) mengambilnya dari respons pertama; pergantian server
+    // hanya dicatat lewat login atau switchServer.
+    onServerId: (id) => {
+      if (!getServerId()) setServerId(id);
+    },
+  });
   const api = new ApiClient(http, new TokenStore(expoSecureKV), () => clock.now().ms);
 
   const device = getDeviceIdentity(db, {
@@ -100,13 +115,24 @@ function createServices(db: AppDatabase): AppServices {
     randomHex: (n) => Array.from(Crypto.getRandomBytes(n), (b) => b.toString(16).padStart(2, '0')).join(''),
     now: () => clock.now().ms,
     device: () => device,
-    pendingCount: () => getPendingSummary(db).total,
+    pendingCount: () => {
+      const p = getPendingSummary(db);
+      return p.total + p.photos;
+    },
     lastUserId: () => {
       const v = getMeta(db, META_KEYS.lastUserId);
       return v ? Number(v) : null;
     },
-    setLastUserId: (id) => setMeta(db, META_KEYS.lastUserId, String(id)),
+    setLastUserId: (id) => (id == null ? deleteMeta(db, META_KEYS.lastUserId) : setMeta(db, META_KEYS.lastUserId, String(id))),
+    serverId: getServerId,
+    setServerId,
+    resetLocalData: () => resetServerData(db),
   });
+
+  const switchServer = async (url: string) => {
+    await session.leaveServer();
+    setBaseUrl(url);
+  };
 
   const refreshLocation = async () => {
     const result = await getFix(ExpoLocation as unknown as LocationApi);
@@ -179,7 +205,7 @@ function createServices(db: AppDatabase): AppServices {
   const last = getMeta(db, META_KEYS.lastSyncResult);
   if (last) useSync.getState().setResult(JSON.parse(last) as SyncResult);
 
-  return { db, clock, api, session, device, getBaseUrl, setBaseUrl, refreshLocation, sync, txContext };
+  return { db, clock, api, session, device, getBaseUrl, setBaseUrl, getServerId, switchServer, refreshLocation, sync, txContext };
 }
 
 export function ServicesProvider({ children }: { children: ReactNode }) {

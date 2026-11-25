@@ -5,7 +5,16 @@ import { count, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { MasterChanges, MasterRecord } from '../../sync/contract';
-import { approvalInbox, MASTER_ENTITIES, masterTables, syncCursor, type MasterEntity } from '../schema';
+import {
+  approvalInbox,
+  fertilizationVerificationQueue,
+  maintenanceVerificationQueue,
+  MASTER_ENTITIES,
+  masterTables,
+  syncCursor,
+  verificationQueue,
+  type MasterEntity,
+} from '../schema';
 import type { AppDatabase } from '../types';
 
 export const MASTER_CURSOR_KEY = 'master';
@@ -103,6 +112,21 @@ export function resetMasterData(db: AppDatabase): void {
     for (const entity of MASTER_ENTITIES) tx.delete(masterTables[entity]).run();
     tx.delete(syncCursor).run();
     tx.delete(approvalInbox).run();
+  });
+}
+
+/**
+ * Semua data milik server/pengguna di HP (master, cursor, approval inbox, antrean verifikasi), untuk pindah
+ * server atau ganti pengguna. Transaksi HP tidak disentuh.
+ */
+export function resetServerData(db: AppDatabase): void {
+  db.transaction((tx) => {
+    for (const entity of MASTER_ENTITIES) tx.delete(masterTables[entity]).run();
+    tx.delete(syncCursor).run();
+    tx.delete(approvalInbox).run();
+    tx.delete(verificationQueue).run();
+    tx.delete(fertilizationVerificationQueue).run();
+    tx.delete(maintenanceVerificationQueue).run();
   });
 }
 

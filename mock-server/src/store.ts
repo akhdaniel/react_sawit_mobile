@@ -52,6 +52,8 @@ export interface StoreOptions {
   /** Jumlah maksimum record per halaman GET /master. */
   masterPageSize: number;
   now: () => number;
+  /** Identitas database (server_id) di setiap respons, seperti UUID database Odoo. */
+  serverId: string;
 }
 
 export const DEFAULT_OPTIONS: StoreOptions = {
@@ -59,6 +61,7 @@ export const DEFAULT_OPTIONS: StoreOptions = {
   postDelayMs: 60_000,
   masterPageSize: 1000,
   now: () => Date.now(),
+  serverId: 'mock-server-db',
 };
 
 export class Store {

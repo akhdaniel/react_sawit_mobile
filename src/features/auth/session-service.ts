@@ -8,6 +8,9 @@
  *   (data transaksi di HP tidak dihapus).
  * - Ganti pengguna / logout ditolak selama masih ada data milik pengguna lama yang belum
  *   terkirim, agar transaksi tidak tertinggal tanpa pemilik.
+ * - Pindah server (server_id berbeda) juga ditolak selama ada data belum terkirim: data itu milik
+ *   server lama. Setelah pindah server atau ganti pengguna, data server/pengguna lama di HP (master,
+ *   antrean verifikasi, approval) dibersihkan dan PIN dibuat ulang. Riwayat transaksi tetap.
  */
 import { authUserSchema, type AuthUser } from '../../sync/contract';
 import { ApiError, NetworkError } from '../../sync/http';
@@ -35,6 +38,7 @@ export type SessionErrorCode =
   | 'invalid_credentials'
   | 'server_error'
   | 'pending_other_user'
+  | 'pending_other_server'
   | 'pending_data'
   | 'invalid_pin_format';
 
@@ -57,9 +61,15 @@ export interface SessionDeps {
   /** Waktu monotonic/trusted (ms) — untuk lockout, tidak bisa diakali dengan ubah jam HP. */
   now(): number;
   device(): { deviceId: string; deviceModel: string; appVersion: string };
+  /** Transaksi dan foto yang belum terkirim. */
   pendingCount(): number;
   lastUserId(): number | null;
-  setLastUserId(id: number): void;
+  setLastUserId(id: number | null): void;
+  /** server_id server yang datanya ada di HP (null: belum diketahui). */
+  serverId(): string | null;
+  setServerId(id: string | null): void;
+  /** Hapus data milik server/pengguna di HP (master, antrean, approval); transaksi tidak disentuh. */
+  resetLocalData(): void;
 }
 
 export interface StoredSession {
@@ -125,10 +135,23 @@ export class SessionService {
     }
 
     if (expectedUserId != null && res.user.id !== expectedUserId) {
-      throw new SessionError('pending_other_user', 'Akun berbeda dengan pengguna aktif. Login ulang memakai akun yang sama.');
+      throw new SessionError(
+        'pending_other_user',
+        'Akun berbeda dengan pengguna aktif. Login ulang memakai akun yang sama, atau keluar dulu lewat menu Akun untuk berganti pengguna.',
+      );
     }
 
-    const previous = this.d.lastUserId();
+    // Server lama tanpa server_id: dianggap server yang sama (perilaku sebelumnya).
+    const knownServer = this.d.serverId();
+    const serverChanged = res.server_id != null && knownServer != null && res.server_id !== knownServer;
+    if (serverChanged && this.d.pendingCount() > 0) {
+      throw new SessionError(
+        'pending_other_server',
+        'Masih ada data yang belum terkirim ke server sebelumnya. Kembalikan alamat server lama, lalu sinkronkan dulu.',
+      );
+    }
+    // Id pengguna hanya bermakna di server yang sama.
+    const previous = serverChanged ? null : this.d.lastUserId();
     const switching = previous != null && previous !== res.user.id;
     if (switching && this.d.pendingCount() > 0) {
       throw new SessionError('pending_other_user', 'Masih ada data pengguna sebelumnya yang belum terkirim. Sinkronkan dulu dengan akun tersebut.');
@@ -137,8 +160,10 @@ export class SessionService {
     await this.d.api.tokens.save(res, this.d.now());
     await this.d.kv.set(SESSION_KEYS.user, JSON.stringify(res.user));
     await this.d.kv.set(SESSION_KEYS.login, login.trim());
+    if (serverChanged || switching) this.d.resetLocalData();
+    if (res.server_id) this.d.setServerId(res.server_id);
     this.d.setLastUserId(res.user.id);
-    if (switching) await this.clearPin();
+    if (serverChanged || switching) await this.clearPin();
     return { user: res.user, hasPin: (await this.d.kv.get(SESSION_KEYS.pin)) != null };
   }
 
@@ -201,6 +226,20 @@ export class SessionService {
       throw new SessionError('pending_data', 'Masih ada data belum terkirim. Lakukan sinkron sebelum keluar.');
     }
     await this.wipe();
+  }
+
+  /**
+   * Pindah ke server lain: hanya bila tidak ada data belum terkirim (data itu milik server lama).
+   * Sesi, PIN, dan data server/pengguna lama dihapus; pengguna login ulang di server baru.
+   */
+  async leaveServer(): Promise<void> {
+    if (this.d.pendingCount() > 0) {
+      throw new SessionError('pending_data', 'Masih ada data belum terkirim ke server lama. Sinkronkan dulu sebelum pindah server.');
+    }
+    await this.wipe();
+    this.d.resetLocalData();
+    this.d.setLastUserId(null);
+    this.d.setServerId(null);
   }
 
   /**

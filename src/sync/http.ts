@@ -47,6 +47,8 @@ export interface HttpClientOptions {
   random?: () => number;
   /** Dipanggil untuk setiap server_time yang diterima (sukses maupun error). */
   onServerTime?: (iso: string) => void;
+  /** Dipanggil untuk setiap server_id (UUID database) yang diterima (sukses maupun error). */
+  onServerId?: (id: string) => void;
 }
 
 export interface RequestOptions<T> {
@@ -141,6 +143,8 @@ export class HttpClient {
 
     const serverTime = (json as { server_time?: unknown } | undefined)?.server_time;
     if (typeof serverTime === 'string') this.opts.onServerTime?.(serverTime);
+    const serverId = (json as { server_id?: unknown } | undefined)?.server_id;
+    if (typeof serverId === 'string' && serverId) this.opts.onServerId?.(serverId);
 
     if (!res.ok) {
       const parsed = errorResponseSchema.safeParse(json);
