@@ -5,6 +5,8 @@
  * - Lanjutkan pada tiket HP ini merujuk target_uuid; dari antrean merujuk core_ticket_id (tiket ERP, bisa
  *   dari HP lain atau input ERP). Id tiket ERP hanya unik per jenis tiket, jadi selalu dipasangkan target_type.
  * - Lanjutkan yang ditolak server boleh diulang (mis. setelah tarif dibuat); yang lain hanya sekali.
+ * - Lanjutkan dihitung per user: satu HP bisa dipakai mandor lalu kerani, dan Lanjutkan mandor tidak boleh
+ *   menyembunyikan tiket dari antrean kerani.
  */
 import { and, asc, desc, eq, ne } from 'drizzle-orm';
 
@@ -121,12 +123,12 @@ const TABLES = {
   maintenance_ticket: { ticket: maintenanceTicket, queue: maintenanceVerificationQueue },
 } as const;
 
-/** Lanjutkan dari HP ini yang masih berlaku (tidak ditolak server) untuk satu jenis tiket. */
-function activeConfirms(db: AppDatabase, type: StageTargetType): { cores: Set<number>; uuids: Set<string> } {
+/** Lanjutkan user ini dari HP ini yang masih berlaku (tidak ditolak server) untuk satu jenis tiket. */
+function activeConfirms(db: AppDatabase, type: StageTargetType, userId: number): { cores: Set<number>; uuids: Set<string> } {
   const rows = db
     .select()
     .from(stageConfirm)
-    .where(and(ne(stageConfirm.status, 'rejected'), eq(stageConfirm.targetType, type)))
+    .where(and(ne(stageConfirm.status, 'rejected'), eq(stageConfirm.targetType, type), eq(stageConfirm.userId, userId)))
     .all();
   return {
     cores: new Set(rows.map((c) => c.coreTicketId).filter((x): x is number => x != null)),
@@ -134,9 +136,9 @@ function activeConfirms(db: AppDatabase, type: StageTargetType): { cores: Set<nu
   };
 }
 
-/** Antrean tiket panen yang belum dilanjutkan dari HP ini, tanggal terbaru dulu. */
-export function pendingVerifications(db: AppDatabase): VerificationRow[] {
-  const { cores, uuids } = activeConfirms(db, 'harvest_ticket');
+/** Antrean tiket panen yang belum dilanjutkan user ini, tanggal terbaru dulu. */
+export function pendingVerifications(db: AppDatabase, userId: number): VerificationRow[] {
+  const { cores, uuids } = activeConfirms(db, 'harvest_ticket', userId);
   return db
     .select()
     .from(verificationQueue)
@@ -145,9 +147,9 @@ export function pendingVerifications(db: AppDatabase): VerificationRow[] {
     .filter((r) => !cores.has(r.coreTicketId) && !(r.mobileUuid && uuids.has(r.mobileUuid)));
 }
 
-/** Antrean tiket pemupukan yang belum dilanjutkan dari HP ini, tanggal terbaru dulu. */
-export function pendingFertilizationVerifications(db: AppDatabase): FertilizationVerificationRow[] {
-  const { cores, uuids } = activeConfirms(db, 'fertilization_ticket');
+/** Antrean tiket pemupukan yang belum dilanjutkan user ini, tanggal terbaru dulu. */
+export function pendingFertilizationVerifications(db: AppDatabase, userId: number): FertilizationVerificationRow[] {
+  const { cores, uuids } = activeConfirms(db, 'fertilization_ticket', userId);
   return db
     .select()
     .from(fertilizationVerificationQueue)
@@ -156,9 +158,9 @@ export function pendingFertilizationVerifications(db: AppDatabase): Fertilizatio
     .filter((r) => !cores.has(r.coreTicketId) && !(r.mobileUuid && uuids.has(r.mobileUuid)));
 }
 
-/** Antrean tiket perawatan yang belum dilanjutkan dari HP ini, tanggal terbaru dulu. */
-export function pendingMaintenanceVerifications(db: AppDatabase): MaintenanceVerificationRow[] {
-  const { cores, uuids } = activeConfirms(db, 'maintenance_ticket');
+/** Antrean tiket perawatan yang belum dilanjutkan user ini, tanggal terbaru dulu. */
+export function pendingMaintenanceVerifications(db: AppDatabase, userId: number): MaintenanceVerificationRow[] {
+  const { cores, uuids } = activeConfirms(db, 'maintenance_ticket', userId);
   return db
     .select()
     .from(maintenanceVerificationQueue)
@@ -174,17 +176,17 @@ const PENDING = {
 } as const;
 
 /** Jumlah semua tiket yang menunggu Lanjutkan dari user ini (badge menu). */
-export function pendingVerificationCount(db: AppDatabase): number {
-  return Object.values(PENDING).reduce((n, pending) => n + pending(db).length, 0);
+export function pendingVerificationCount(db: AppDatabase, userId: number): number {
+  return Object.values(PENDING).reduce((n, pending) => n + pending(db, userId).length, 0);
 }
 
-/** Lanjutkan terakhir untuk tiket HP `ticketUuid`. */
-export function latestConfirmFor(db: AppDatabase, ticketUuid: string): StageConfirmRow | null {
+/** Lanjutkan terakhir untuk tiket HP `ticketUuid`; bila `userId` diisi, hanya Lanjutkan user itu. */
+export function latestConfirmFor(db: AppDatabase, ticketUuid: string, userId?: number): StageConfirmRow | null {
   return (
     db
       .select()
       .from(stageConfirm)
-      .where(eq(stageConfirm.targetUuid, ticketUuid))
+      .where(and(eq(stageConfirm.targetUuid, ticketUuid), userId == null ? undefined : eq(stageConfirm.userId, userId)))
       .orderBy(desc(stageConfirm.createdTrustedAt))
       .get() ?? null
   );
@@ -206,13 +208,14 @@ function ticketState(db: AppDatabase, type: StageTargetType, ticketUuid: string)
 export function validateContinueTicket(
   db: AppDatabase,
   ticketUuid: string,
+  userId: number,
   type: StageTargetType = 'harvest_ticket',
 ): ContinueErrorCode | null {
   const ticket = ticketState(db, type, ticketUuid);
   if (!ticket) return 'unknown_target';
   if (ticket.status === 'rejected') return 'ticket_rejected';
   if (ticket.corrected) return 'ticket_corrected';
-  const last = latestConfirmFor(db, ticketUuid);
+  const last = latestConfirmFor(db, ticketUuid, userId);
   if (last && last.status !== 'rejected') return 'already_continued';
   return null;
 }
@@ -220,9 +223,10 @@ export function validateContinueTicket(
 export function validateContinueQueued(
   db: AppDatabase,
   coreTicketId: number,
+  userId: number,
   type: StageTargetType = 'harvest_ticket',
 ): ContinueErrorCode | null {
-  if (!PENDING[type](db).some((r) => r.coreTicketId === coreTicketId)) {
+  if (!PENDING[type](db, userId).some((r) => r.coreTicketId === coreTicketId)) {
     const table = TABLES[type].queue;
     const known = db.select({ id: table.coreTicketId }).from(table).where(eq(table.coreTicketId, coreTicketId)).get();
     return known ? 'already_continued' : 'unknown_target';

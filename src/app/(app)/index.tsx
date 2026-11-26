@@ -23,7 +23,10 @@ export default function HomeScreen() {
   const user = useSession((s) => s.user);
   const items = user ? menuForRoles(user.roles) : [];
   const pending = useTableQuery(PENDING_WATCH_TABLES, () => getPendingSummary(db).total);
-  const toVerify = useTableQuery(['verification_queue', 'fertilization_verification_queue', 'maintenance_verification_queue', 'stage_confirm'], () => pendingVerificationCount(db));
+  const toVerify = useTableQuery(
+    ['verification_queue', 'fertilization_verification_queue', 'maintenance_verification_queue', 'stage_confirm', `user:${user?.id}`],
+    () => pendingVerificationCount(db, user?.id ?? 0),
+  );
   const badgeOf = (key: string) => {
     if (key === 'sync' && pending > 0) return String(pending);
     if (key === 'verification' && toVerify > 0) return String(toVerify);

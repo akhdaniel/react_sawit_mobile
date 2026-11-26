@@ -152,13 +152,13 @@ describe('runSync', () => {
     const r = await runSync(deps(db, api, { verificationEnabled: true }));
     expect(calls).toContain('verifications');
     expect(r.verifications).toEqual({ items: 3 });
-    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1, 2]);
-    expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
+    expect(pendingVerifications(db, 1).map((v) => v.coreTicketId)).toEqual([1, 2]);
+    expect(pendingFertilizationVerifications(db, 1).map((v) => v.coreTicketId)).toEqual([1]);
 
     const later = fakeApi({ getVerifications: async () => ({ items: [queued(2)], fertilization_items: [], maintenance_items: [] }) });
     await runSync(deps(db, later.api, { verificationEnabled: true }));
-    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
-    expect(pendingFertilizationVerifications(db)).toEqual([]);
+    expect(pendingVerifications(db, 1).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(pendingFertilizationVerifications(db, 1)).toEqual([]);
   });
 
   it('peran lain: antrean verifikasi tidak ditarik', async () => {

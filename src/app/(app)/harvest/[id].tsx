@@ -39,7 +39,8 @@ export default function HarvestTicketScreen() {
   );
 
   const confirm = useTableQuery(['stage_confirm', id], () => latestConfirmFor(db, id));
-  const canContinue = useTableQuery(['stage_confirm', 'harvest_ticket', id], () => validateContinueTicket(db, id) === null);
+  const userId = useSession((s) => s.user?.id ?? 0);
+  const canContinue = useTableQuery(['stage_confirm', 'harvest_ticket', id, `user:${userId}`], () => validateContinueTicket(db, id, userId) === null);
   const verifier = useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_panen' || r === 'kerani_panen'));
 
   const [printing, setPrinting] = useState(false);

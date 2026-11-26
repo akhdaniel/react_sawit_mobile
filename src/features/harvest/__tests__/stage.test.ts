@@ -139,9 +139,24 @@ describe('antrean verifikasi', () => {
     expect(continueQueued(db, ctx, 3)).toEqual({ ok: false, code: 'unknown_target' });
     expect(continueQueued(db, ctx, 1).ok).toBe(true);
     expect(continueQueued(db, ctx, 1)).toEqual({ ok: false, code: 'already_continued' });
-    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(pendingVerifications(db, ctx.userId).map((v) => v.coreTicketId)).toEqual([2]);
     const { entries } = collectOutbox(db, 50, '1.0.0');
     expect(entries[0]!.item.payload).toEqual({ target_type: 'harvest_ticket', target_uuid: null, core_ticket_id: 1 });
+  });
+
+  it('HP bersama: Lanjutkan mandor tidak menyembunyikan tiket dari antrean kerani', () => {
+    const { db } = createTestDb();
+    const ticket = harvestTicketRow({ status: 'posted' });
+    db.insert(harvestTicket).values(ticket).run();
+    // Mandor (user 101) Simpan & Lanjutkan di HP ini, lalu kerani (user 202) login di HP yang sama dan sinkron.
+    expect(continueTicket(db, ctx, ticket.mobileUuid).ok).toBe(true);
+    const kerani = { ...ctx, userId: 202 } as TxContext;
+    replaceVerificationQueue(db, queue([queued(1, ticket.mobileUuid)]), '2026-10-18T03:00:00.000Z');
+    expect(pendingVerifications(db, kerani.userId).map((v) => v.coreTicketId)).toEqual([1]);
+    expect(pendingVerificationCount(db, kerani.userId)).toBe(1);
+    expect(pendingVerifications(db, ctx.userId)).toEqual([]);
+    expect(continueQueued(db, kerani, 1).ok).toBe(true);
+    expect(pendingVerifications(db, kerani.userId)).toEqual([]);
   });
 
   it('tiket HP ini yang sudah dilanjutkan dari detail tiket tidak muncul lagi', () => {
@@ -150,7 +165,7 @@ describe('antrean verifikasi', () => {
     db.insert(harvestTicket).values(ticket).run();
     replaceVerificationQueue(db, queue([queued(1, ticket.mobileUuid)]), '2026-10-18T03:00:00.000Z');
     continueTicket(db, ctx, ticket.mobileUuid);
-    expect(pendingVerifications(db)).toEqual([]);
+    expect(pendingVerifications(db, ctx.userId)).toEqual([]);
   });
 });
 
@@ -184,17 +199,17 @@ describe('Lanjutkan tiket pemupukan', () => {
       queue([queued(1)], [fertilizationQueued(1), fertilizationQueued(2)], [maintenanceQueued(1)]),
       '2026-10-18T03:00:00.000Z',
     );
-    expect(pendingVerificationCount(db)).toBe(4);
+    expect(pendingVerificationCount(db, ctx.userId)).toBe(4);
     expect(continueQueued(db, ctx, 1, 'fertilization_ticket').ok).toBe(true);
-    expect(pendingVerifications(db).map((v) => v.coreTicketId)).toEqual([1]);
-    expect(pendingFertilizationVerifications(db).map((v) => v.coreTicketId)).toEqual([2]);
+    expect(pendingVerifications(db, ctx.userId).map((v) => v.coreTicketId)).toEqual([1]);
+    expect(pendingFertilizationVerifications(db, ctx.userId).map((v) => v.coreTicketId)).toEqual([2]);
     expect(continueQueued(db, ctx, 1)).toEqual({ ok: true, mobileUuid: expect.any(String) });
     expect(continueQueued(db, ctx, 3, 'fertilization_ticket')).toEqual({ ok: false, code: 'unknown_target' });
-    expect(pendingMaintenanceVerifications(db).map((v) => [v.coreTicketId, v.materials])).toEqual([
+    expect(pendingMaintenanceVerifications(db, ctx.userId).map((v) => [v.coreTicketId, v.materials])).toEqual([
       [1, [{ name: 'Glifosat', qty: 3, uom: 'L' }]],
     ]);
     expect(continueQueued(db, ctx, 1, 'maintenance_ticket').ok).toBe(true);
-    expect(pendingVerificationCount(db)).toBe(1);
+    expect(pendingVerificationCount(db, ctx.userId)).toBe(1);
     const { entries } = collectOutbox(db, 50, '1.0.0');
     expect(entries.map((e) => e.item.payload)).toEqual([
       { target_type: 'fertilization_ticket', target_uuid: null, core_ticket_id: 1 },
