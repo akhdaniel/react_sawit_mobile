@@ -22,6 +22,7 @@ import {
   type MaintenanceVerificationRow,
   type VerificationRow,
 } from '@/db/repositories/verification';
+import { useSession } from '@/features/auth/session-store';
 import { continueQueued } from '@/features/harvest/stage';
 import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
@@ -83,11 +84,16 @@ export default function VerificationScreen() {
   const refresh = useRefresh();
   const services = useServices();
   const { db } = services;
-  const harvest = useTableQuery(['verification_queue', 'stage_confirm'], () => pendingVerifications(db));
-  const fertilization = useTableQuery(['fertilization_verification_queue', 'stage_confirm'], () =>
-    pendingFertilizationVerifications(db),
+  // Lanjutkan dihitung per user: HP yang dipakai bergantian mandor dan kerani tetap menampilkan antrean kerani.
+  const userId = useSession((s) => s.user?.id ?? 0);
+  const userKey = `user:${userId}`;
+  const harvest = useTableQuery(['verification_queue', 'stage_confirm', userKey], () => pendingVerifications(db, userId));
+  const fertilization = useTableQuery(['fertilization_verification_queue', 'stage_confirm', userKey], () =>
+    pendingFertilizationVerifications(db, userId),
   );
-  const maintenance = useTableQuery(['maintenance_verification_queue', 'stage_confirm'], () => pendingMaintenanceVerifications(db));
+  const maintenance = useTableQuery(['maintenance_verification_queue', 'stage_confirm', userKey], () =>
+    pendingMaintenanceVerifications(db, userId),
+  );
   const total = harvest.length + fertilization.length + maintenance.length;
   const [open, setOpen] = useState<Open | null>(null);
   const [busy, setBusy] = useState(false);

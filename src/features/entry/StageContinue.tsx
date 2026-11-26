@@ -42,7 +42,10 @@ export function ContinueButton({ type, ticketUuid }: { type: RawatTarget; ticket
   const services = useServices();
   const { db } = services;
   const verifier = useRawatVerifier();
-  const canContinue = useTableQuery(['stage_confirm', type, ticketUuid], () => validateContinueTicket(db, ticketUuid, type) === null);
+  const userId = useSession((s) => s.user?.id ?? 0);
+  const canContinue = useTableQuery(['stage_confirm', type, ticketUuid, `user:${userId}`], () =>
+    validateContinueTicket(db, ticketUuid, userId, type) === null,
+  );
   const [busy, setBusy] = useState(false);
   if (!verifier || !canContinue) return null;
 

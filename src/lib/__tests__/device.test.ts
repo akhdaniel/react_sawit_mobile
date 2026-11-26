@@ -23,3 +23,22 @@ describe('getDeviceIdentity', () => {
     expect(getDeviceIdentity(db, src(null)).deviceId).toBe('uuid-11111111-2222-4333-8444-555555555555');
   });
 });
+
+describe('device_short', () => {
+  it('acak per instalasi: clear data memberi kode baru walau Android ID sama', () => {
+    let n = 0;
+    const fresh = () => ({ ...src('abc123'), randomUUID: () => `11111111-2222-4333-8444-${String(++n).padStart(12, '0')}` });
+    const first = getDeviceIdentity(createTestDb().db, fresh());
+    const afterClear = getDeviceIdentity(createTestDb().db, fresh());
+    expect(afterClear.deviceId).toBe(first.deviceId);
+    expect(afterClear.deviceShort).toMatch(/^[A-Z0-9]{4}$/);
+    expect(afterClear.deviceShort).not.toBe(first.deviceShort);
+  });
+
+  it('tetap sama selama data aplikasi tidak dihapus', () => {
+    const { db } = createTestDb();
+    let n = 0;
+    const fresh = () => ({ ...src('abc123'), randomUUID: () => `11111111-2222-4333-8444-${String(++n).padStart(12, '0')}` });
+    expect(getDeviceIdentity(db, fresh()).deviceShort).toBe(getDeviceIdentity(db, fresh()).deviceShort);
+  });
+});

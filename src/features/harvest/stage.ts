@@ -23,7 +23,7 @@ export function continueTicket(
   ticketUuid: string,
   type: StageTargetType = 'harvest_ticket',
 ): ContinueResult {
-  const code = validateContinueTicket(db, ticketUuid, type);
+  const code = validateContinueTicket(db, ticketUuid, ctx.userId, type);
   if (code) return { ok: false, code };
   const mobileUuid = randomUUID();
   saveStageConfirm(db, { ...makeTxCommon(ctx, mobileUuid), targetType: type, targetUuid: ticketUuid, coreTicketId: null });
@@ -37,7 +37,7 @@ export function continueQueued(
   coreTicketId: number,
   type: StageTargetType = 'harvest_ticket',
 ): ContinueResult {
-  const code = validateContinueQueued(db, coreTicketId, type);
+  const code = validateContinueQueued(db, coreTicketId, ctx.userId, type);
   if (code) return { ok: false, code };
   const mobileUuid = randomUUID();
   saveStageConfirm(db, { ...makeTxCommon(ctx, mobileUuid), targetType: type, targetUuid: null, coreTicketId });
