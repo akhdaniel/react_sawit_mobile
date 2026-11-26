@@ -22,11 +22,14 @@ export default function LoginScreen() {
         error={error}
         onSubmit={async (v) => {
           setError(null);
+          const previousUrl = services.getBaseUrl();
           try {
             services.setBaseUrl(v.baseUrl);
             const s = await services.session.login(v.login, v.password);
             useSession.getState().signedIn(s.user, s.hasPin);
           } catch (e) {
+            // Data belum terkirim milik server lama: alamat lama dipakai lagi agar bisa disinkronkan.
+            if (e instanceof SessionError && e.code === 'pending_other_server') services.setBaseUrl(previousUrl);
             setError(e instanceof SessionError || e instanceof Error ? e.message : String(e));
           }
         }}

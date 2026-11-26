@@ -52,12 +52,12 @@ export function createApp(store: Store) {
 
   app.use(express.json({ limit: '10mb' }));
 
-  // Semua respons JSON membawa server_time untuk kalibrasi trusted-time.
+  // Semua respons JSON membawa server_time (kalibrasi trusted-time) dan server_id (identitas database).
   app.use((_req, res, next) => {
     const json = res.json.bind(res);
     res.json = (body: unknown) =>
       json(body && typeof body === 'object' && !Array.isArray(body)
-        ? { ...body, server_time: new Date(store.opts.now()).toISOString() }
+        ? { ...body, server_time: new Date(store.opts.now()).toISOString(), server_id: store.opts.serverId }
         : body);
     next();
   });

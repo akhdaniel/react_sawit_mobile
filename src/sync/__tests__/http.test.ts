@@ -31,6 +31,22 @@ describe('HttpClient', () => {
     expect(onServerTime).toHaveBeenCalledWith(ST);
   });
 
+  it('server_id di respons sukses maupun error diteruskan ke onServerId', async () => {
+    const onServerId = jest.fn();
+    const { http } = client(
+      [
+        { status: 200, body: { ok: true, server_time: ST, server_id: 'db-a' } },
+        { status: 400, body: { error: { code: 'x', message: 'y' }, server_time: ST, server_id: 'db-a' } },
+        { status: 200, body: { ok: true, server_time: ST } },
+      ],
+      { onServerId, retries: 0 },
+    );
+    await http.request('GET', '/x', { schema });
+    await expect(http.request('GET', '/x', { schema })).rejects.toThrow();
+    await http.request('GET', '/x', { schema });
+    expect(onServerId.mock.calls).toEqual([['db-a'], ['db-a']]);
+  });
+
   it('retry dengan backoff eksponensial untuk error jaringan dan 5xx', async () => {
     const { http, calls, sleeps } = client([
       { networkError: true },

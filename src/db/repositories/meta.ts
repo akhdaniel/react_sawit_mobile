@@ -15,6 +15,8 @@ export const META_KEYS = {
   apiBaseUrl: 'api_base_url',
   /** User terakhir yang login di HP ini. */
   lastUserId: 'last_user_id',
+  /** server_id (UUID database) server yang datanya ada di HP ini. */
+  serverId: 'server_id',
   /** Gang terakhir dipilih di layar absensi/penugasan. */
   selectedGangId: 'selected_gang_id',
   /** Printer BLE terpilih (JSON {id,name}). */

@@ -1,5 +1,7 @@
-import { block, employee } from '@/db/schema';
-import { applyMasterChanges, countMaster, getCursor } from '@/db/repositories/master';
+import { block, employee, harvestTicket, verificationQueue } from '@/db/schema';
+import { applyMasterChanges, countMaster, getCursor, resetServerData } from '@/db/repositories/master';
+import { replaceVerificationQueue } from '@/db/repositories/verification';
+import { harvestTicketRow } from '@/test/fixtures';
 import { masterResponseSchema } from '@/sync/contract';
 import { createTestDb } from '@/test/db';
 
@@ -57,5 +59,37 @@ describe('applyMasterChanges', () => {
     const p = page({ block: { upserts } }, 'v1');
     applyMasterChanges(db, p.changes, p.cursor);
     expect(countMaster(db).block).toBe(450);
+  });
+});
+
+describe('resetServerData', () => {
+  it('menghapus master, cursor, dan antrean verifikasi; transaksi HP tetap', () => {
+    const { db } = createTestDb();
+    const p = page({ block: { upserts: [blk(1)] } }, 'v1');
+    applyMasterChanges(db, p.changes, p.cursor);
+    replaceVerificationQueue(
+      db,
+      {
+        items: [
+          {
+            core_ticket_id: 1, name: 'T-1', work_date: '2026-10-18', stage: 'Draft', block_code: 'B1', tph_code: 'TPH-01',
+            sub_blok_name: null, harvester_id: 7, harvester_name: 'Pemanen', gang_name: null, ripe: 20, unripe: 0, rotten: 0,
+            empty_bunch: 0, long_stalk: 0, loose_fruit_kg: 0, is_late_entry: false, has_photo: false, mobile_uuid: null,
+            created_by: 'Kerani',
+          },
+        ],
+        fertilization_items: [],
+        maintenance_items: [],
+      },
+      ST,
+    );
+    db.insert(harvestTicket).values(harvestTicketRow({ status: 'queued' })).run();
+
+    resetServerData(db);
+
+    expect(countMaster(db).block).toBe(0);
+    expect(getCursor(db)).toBeNull();
+    expect(db.select().from(verificationQueue).all()).toHaveLength(0);
+    expect(db.select().from(harvestTicket).all()).toHaveLength(1);
   });
 });

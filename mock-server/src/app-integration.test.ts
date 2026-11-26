@@ -38,6 +38,7 @@ function makeClient() {
   const http = new HttpClient({ baseUrl: () => baseUrl, retries: 0, onServerTime: (iso) => clock.calibrate(iso) });
   const api = new ApiClient(http, new TokenStore(kv), () => clock.now().ms);
   let lastUserId: number | null = null;
+  let serverId: string | null = null;
   const session = new SessionService({
     kv,
     api,
@@ -50,6 +51,11 @@ function makeClient() {
     setLastUserId: (id) => {
       lastUserId = id;
     },
+    serverId: () => serverId,
+    setServerId: (id) => {
+      serverId = id;
+    },
+    resetLocalData: () => undefined,
   });
   return { clock, api, session };
 }

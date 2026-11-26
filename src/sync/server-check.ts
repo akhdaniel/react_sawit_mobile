@@ -1,10 +1,11 @@
 /**
  * Uji koneksi ke server XSM tanpa login: kirim POST /auth/refresh dengan token kosong.
  * Server XSM yang sehat menolak (4xx) dengan JSON berisi server_time — itu cukup untuk
- * memastikan alamat benar dan server terjangkau. Tidak mengubah data apa pun.
+ * memastikan alamat benar dan server terjangkau. server_id (UUID database) di respons yang sama
+ * membedakan alamat baru untuk server yang sama dari server lain. Tidak mengubah data apa pun.
  */
 export type ServerCheckResult =
-  | { ok: true; serverTime: string; latencyMs: number }
+  | { ok: true; serverTime: string; latencyMs: number; serverId: string | null }
   | { ok: false; reason: 'unreachable' | 'timeout' | 'not_xsm'; detail: string };
 
 export async function checkServer(
@@ -34,8 +35,11 @@ export async function checkServer(
     } catch {
       json = undefined;
     }
-    const serverTime = (json as { server_time?: unknown } | undefined)?.server_time;
-    if (typeof serverTime === 'string') return { ok: true, serverTime, latencyMs: now() - started };
+    const body = json as { server_time?: unknown; server_id?: unknown } | undefined;
+    const serverTime = body?.server_time;
+    // server_id kosong: server lama, belum mengirim identitas database.
+    const serverId = typeof body?.server_id === 'string' && body.server_id ? body.server_id : null;
+    if (typeof serverTime === 'string') return { ok: true, serverTime, latencyMs: now() - started, serverId };
     return { ok: false, reason: 'not_xsm', detail: `HTTP ${res.status}` };
   } catch (e) {
     if (timedOut) return { ok: false, reason: 'timeout', detail: `${Math.round(timeoutMs / 1000)} detik` };

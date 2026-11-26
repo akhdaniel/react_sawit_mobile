@@ -1,6 +1,7 @@
 /**
  * Request/response kontrak REST /xsm/v1. Semua respons sukses membawa server_time (ISO)
- * untuk kalibrasi trusted-time. Error: {error:{code,message}}.
+ * untuk kalibrasi trusted-time dan server_id (UUID database; opsional di server lama) untuk
+ * mengenali pindah server. Error: {error:{code,message}}.
  */
 import { z } from 'zod';
 
@@ -17,6 +18,8 @@ import { MAX_TX_BATCH, TX_TYPE_NAMES, txItemSchema } from './transactions';
 const id = z.int().positive();
 const uuid = z.uuid();
 export const serverTime = z.iso.datetime({ offset: true });
+/** UUID database Odoo: membedakan ganti alamat server yang sama dari pindah ke server lain. */
+export const serverId = z.string().min(1);
 
 export const ROLES = ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat', 'kerani_transport', 'asisten'] as const;
 export const roleSchema = z.enum(ROLES);
@@ -25,6 +28,7 @@ export type Role = z.infer<typeof roleSchema>;
 export const errorResponseSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
   server_time: serverTime.optional(),
+  server_id: serverId.optional(),
 });
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 
@@ -53,6 +57,8 @@ export const authTokenResponseSchema = z.object({
   expires_in: z.int().positive(),
   user: authUserSchema,
   server_time: serverTime,
+  /** Opsional: server lama belum mengirimnya. */
+  server_id: serverId.optional(),
 });
 export type AuthTokenResponse = z.infer<typeof authTokenResponseSchema>;
 
