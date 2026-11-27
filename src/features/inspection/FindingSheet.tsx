@@ -4,11 +4,12 @@
  */
 import { randomUUID } from 'expo-crypto';
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { NumberStepper } from '@/components/NumberStepper';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { Sheet } from '@/components/Sheet';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
@@ -54,6 +55,7 @@ function FindingForm({ preset, onSave, onClose }: { preset: FindingPreset; onSav
   const [qr, setQr] = useState('');
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [camera, setCamera] = useState(false);
+  const [preview, setPreview] = useState<number | null>(null);
 
   const needsPhoto = severity !== 'minor' && photos.length === 0;
   const canSave = !!description.trim() && !needsPhoto;
@@ -80,7 +82,7 @@ function FindingForm({ preset, onSave, onClose }: { preset: FindingPreset; onSav
 
   return (
     <>
-      <Sheet visible={!camera} title={t('finding.sheetTitle')} onClose={onClose}>
+      <Sheet visible={!camera && preview == null} title={t('finding.sheetTitle')} onClose={onClose}>
         {preset.itemName && (
           <Txt variant="small" style={{ color: colors.textMuted }}>
             {t('finding.fromItem', { item: preset.itemName })}
@@ -107,8 +109,10 @@ function FindingForm({ preset, onSave, onClose }: { preset: FindingPreset; onSav
         <Txt style={styles.label}>{t('finding.photo')}</Txt>
         {photos.length > 0 && (
           <ScrollView horizontal contentContainerStyle={{ gap: spacing.sm }}>
-            {photos.map((p) => (
-              <Image key={p.id} source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('finding.photo')} />
+            {photos.map((p, i) => (
+              <Pressable key={p.id} accessibilityRole="imagebutton" onPress={() => setPreview(i)}>
+                <Image source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('finding.photo')} />
+              </Pressable>
             ))}
           </ScrollView>
         )}
@@ -120,6 +124,7 @@ function FindingForm({ preset, onSave, onClose }: { preset: FindingPreset; onSav
         )}
         <Button icon="alert-plus" label={t('finding.add')} disabled={!canSave} onPress={save} />
       </Sheet>
+      <PhotoViewer uris={photos.map((p) => p.localUri)} index={preview} onClose={() => setPreview(null)} />
       <CameraCapture
         visible={camera}
         title={t('finding.photo')}

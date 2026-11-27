@@ -10,13 +10,14 @@ import { Button } from '@/components/Button';
 import { Card, SectionTitle } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Icon } from '@/components/Icon';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { StatusPill } from '@/components/StatusPill';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { FOLLOWUP_ROLES, listOpenFindings, type OpenFindingView } from '@/db/repositories/inspection';
+import { findingFollowups, FOLLOWUP_ROLES, listOpenFindings, type OpenFindingView } from '@/db/repositories/inspection';
 import { useSession } from '@/features/auth/session-store';
 import { CameraCapture, type CapturedPhoto } from '@/features/camera/CameraCapture';
 import { saveFollowup } from '@/features/inspection/actions';
@@ -45,6 +46,9 @@ export default function FindingsScreen() {
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** Pratinjau foto riwayat: daftar foto satu tindak lanjut dan foto yang diketuk. */
+  const [preview, setPreview] = useState<{ uris: string[]; index: number } | null>(null);
+  const history = useTableQuery(['inspection_followup', 'photo', open?.ref ?? '-'], () => (open ? findingFollowups(db, open) : []));
 
   const show = (f: OpenFindingView) => {
     setOpen(f);
@@ -121,7 +125,7 @@ export default function FindingsScreen() {
         </Card>
       )}
 
-      <Sheet visible={!!open && !camera} title={open ? t(`finding.categories.${open.category as 'lainnya'}`) : ''} onClose={() => setOpen(null)}>
+      <Sheet visible={!!open && !camera && !preview} title={open ? t(`finding.categories.${open.category as 'lainnya'}`) : ''} onClose={() => setOpen(null)}>
         {open && (
           <>
             <View style={styles.pills}>
@@ -134,6 +138,35 @@ export default function FindingsScreen() {
               {t('inspection.block')} {open.blockCode}
               {open.rowNo || open.treeNo ? ` · ${t('finding.location', { row: open.rowNo ?? '—', tree: open.treeNo ?? '—' })}` : ''}
             </Txt>
+            {history.length > 0 && (
+              <>
+                <SectionTitle>{t('findings.history', { count: history.length })}</SectionTitle>
+                {history.map((h) => (
+                  <Card key={h.mobileUuid} padded>
+                    <View style={styles.pills}>
+                      <StatusPill label={t(h.done ? 'findings.doneYes' : 'findings.doneNo')} tone={h.done ? 'success' : 'warning'} />
+                      <StatusPill label={t(`status.${h.status}`)} tone={h.status === 'rejected' ? 'danger' : 'neutral'} />
+                      <StatusPill label={new Date(h.createdTrustedAt).toLocaleString('id-ID')} tone="neutral" />
+                    </View>
+                    <Txt>{h.actionText}</Txt>
+                    {h.status === 'rejected' && h.rejectReason && (
+                      <Txt variant="small" style={{ color: colors.danger }}>
+                        {h.rejectReason}
+                      </Txt>
+                    )}
+                    {h.photoUris.length > 0 && (
+                      <ScrollView horizontal contentContainerStyle={{ gap: spacing.sm }}>
+                        {h.photoUris.map((uri, i) => (
+                          <Pressable key={uri} accessibilityRole="imagebutton" onPress={() => setPreview({ uris: h.photoUris, index: i })}>
+                            <Image source={{ uri }} style={styles.img} accessibilityLabel={t('findings.photo')} />
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </Card>
+                ))}
+              </>
+            )}
             {canFollowUp ? (
               <>
                 <SectionTitle>{t('findings.followup')}</SectionTitle>
@@ -145,8 +178,14 @@ export default function FindingsScreen() {
                 </View>
                 {photos.length > 0 && (
                   <ScrollView horizontal contentContainerStyle={{ gap: spacing.sm }}>
-                    {photos.map((p) => (
-                      <Image key={p.id} source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('findings.photo')} />
+                    {photos.map((p, i) => (
+                      <Pressable
+                        key={p.id}
+                        accessibilityRole="imagebutton"
+                        onPress={() => setPreview({ uris: photos.map((x) => x.localUri), index: i })}
+                      >
+                        <Image source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('findings.photo')} />
+                      </Pressable>
                     ))}
                   </ScrollView>
                 )}
@@ -161,6 +200,7 @@ export default function FindingsScreen() {
           </>
         )}
       </Sheet>
+      <PhotoViewer uris={preview?.uris ?? []} index={preview?.index ?? null} onClose={() => setPreview(null)} />
       <CameraCapture
         visible={camera}
         title={t('findings.photo')}

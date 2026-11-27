@@ -4,6 +4,7 @@ import {
   canCorrectInspection,
   createFollowup,
   createInspection,
+  findingFollowups,
   inspectionFindings,
   inspectionScore,
   inspectionView,
@@ -221,6 +222,12 @@ describe('inspeksi: simpan, koreksi, temuan terbuka', () => {
     expect(db.select().from(photo).get()!.transactionUuid).toBe(c.mobileUuid);
     const f = listOpenFindings(db, [1]).find((x) => x.ref === 'id:900')!;
     expect(f.lastFollowup).toMatchObject({ done: false, status: 'queued' });
+
+    // Riwayat tindak lanjut tampil lagi saat temuan dibuka: teks, status, dan fotonya.
+    const history = findingFollowups(db, f);
+    expect(history.map((h) => [h.actionText, h.done, h.photoUris])).toEqual([['Bersihkan piringan', false, ['file:///data/photo.jpg']]]);
+    // Temuan ERP yang berasal dari HP bisa dirujuk dengan UUID maupun id ERP.
+    expect(findingFollowups(db, { ref: 'x', findingUuid: null, serverId: 900 })).toHaveLength(1);
 
     // Temuan HP yang belum diposting bisa langsung ditindaklanjuti (server menunggu inspeksinya).
     const local = finding();

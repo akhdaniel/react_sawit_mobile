@@ -15,6 +15,7 @@ import { Card, SectionTitle } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Icon } from '@/components/Icon';
 import { NumberStepper } from '@/components/NumberStepper';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { Screen } from '@/components/Screen';
 import { StatusPill } from '@/components/StatusPill';
 import { Txt } from '@/components/Txt';
@@ -110,6 +111,7 @@ export default function NewInspectionScreen() {
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [preset, setPreset] = useState<FindingPreset | null>(null);
   const [camera, setCamera] = useState(false);
+  const [preview, setPreview] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -446,8 +448,10 @@ export default function NewInspectionScreen() {
       <SectionTitle>{t('inspection.photos')}</SectionTitle>
       {photos.length > 0 && (
         <ScrollView horizontal contentContainerStyle={{ gap: spacing.sm }}>
-          {photos.map((p) => (
-            <Image key={p.id} source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('inspection.photos')} />
+          {photos.map((p, i) => (
+            <Pressable key={p.id} accessibilityRole="imagebutton" onPress={() => setPreview(i)}>
+              <Image source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('inspection.photos')} />
+            </Pressable>
           ))}
         </ScrollView>
       )}
@@ -485,6 +489,7 @@ export default function NewInspectionScreen() {
           setPreset(null);
         }}
       />
+      <PhotoViewer uris={photos.map((p) => p.localUri)} index={preview} onClose={() => setPreview(null)} />
       <CameraCapture
         visible={camera}
         title={t('inspection.photos')}

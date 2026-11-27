@@ -10,7 +10,7 @@
  * - Tindak lanjut hanya oleh mandor panen/rawat, asisten, atau inspektur; kerani hanya melihat temuan.
  * - Koreksi = inspeksi baru dengan correction_of; server membatalkan inspeksi asal saat koreksi diposting.
  */
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm';
 
 import {
   computeScore,
@@ -30,6 +30,7 @@ import {
   employee,
   gang,
   inspection,
+  photo,
   inspectionFinding,
   inspectionFollowup,
   inspectionItem,
@@ -497,7 +498,7 @@ export function listOpenFindings(db: AppDatabase, afdelingIds: readonly number[]
   }
   const followups = effectiveFollowups(db);
   for (const v of out) {
-    const refs = [v.ref, v.serverId != null ? `id:${v.serverId}` : null].filter(Boolean);
+    const refs = findingRefs(v);
     const last = followups.find((x) => refs.includes(x.findingRef));
     if (last) v.lastFollowup = { done: last.done, status: last.status, createdTrustedAt: last.createdTrustedAt };
   }
@@ -516,6 +517,29 @@ export function effectiveFollowups(db: AppDatabase): InspectionFollowupRow[] {
     .all();
   const superseded = new Set(rows.map((r) => r.correctionOf).filter((x): x is string => !!x));
   return rows.filter((r) => !superseded.has(r.mobileUuid));
+}
+
+/** Rujukan sebuah temuan: finding_uuid (temuan HP) dan/atau `id:<id ERP>` — tindak lanjut bisa memakai salah satunya. */
+function findingRefs(f: Pick<OpenFindingView, 'ref' | 'serverId' | 'findingUuid'>): string[] {
+  return [...new Set([f.ref, f.findingUuid, f.serverId != null ? `id:${f.serverId}` : null].filter((x): x is string => !!x))];
+}
+
+export interface FollowupView extends InspectionFollowupRow {
+  /** URI lokal foto tindak lanjut di HP. */
+  photoUris: string[];
+}
+
+/** Riwayat tindak lanjut sebuah temuan dari HP ini (yang tidak ditolak/digantikan koreksi), terbaru dulu. */
+export function findingFollowups(db: AppDatabase, f: Pick<OpenFindingView, 'ref' | 'serverId' | 'findingUuid'>): FollowupView[] {
+  const refs = findingRefs(f);
+  const rows = effectiveFollowups(db).filter((x) => refs.includes(x.findingRef));
+  if (rows.length === 0) return [];
+  const photos = db
+    .select({ tx: photo.transactionUuid, uri: photo.localUri })
+    .from(photo)
+    .where(and(isNotNull(photo.transactionUuid), inArray(photo.transactionUuid, rows.map((r) => r.mobileUuid))))
+    .all();
+  return rows.map((r) => ({ ...r, photoUris: photos.filter((p) => p.tx === r.mobileUuid).map((p) => p.uri) }));
 }
 
 function findingKnown(db: AppDatabase, ref: string): boolean {
