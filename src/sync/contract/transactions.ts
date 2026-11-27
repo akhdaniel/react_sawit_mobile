@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 
-import { FERTILIZATION_METHODS, isoDate, MAINTENANCE_WORK_TYPES } from './master';
+import { FERTILIZATION_METHODS, FINDING_SEVERITIES, INSPECTION_TYPES, isoDate, MAINTENANCE_WORK_TYPES } from './master';
 
 const id = z.int().positive();
 const uuid = z.uuid();
@@ -207,6 +207,73 @@ export const stageConfirmPayloadSchema = z
     message: 'isi salah satu dari target_uuid atau core_ticket_id',
   });
 
+/** Isian satu item checklist; hanya kolom sesuai tipe isian item yang diisi. */
+export const inspectionLineSchema = z.object({
+  item_id: id,
+  value_num: z.number().nullable(),
+  value_bool: z.boolean().nullable(),
+  value_text: z.string().nullable(),
+});
+
+/** Temuan dalam inspeksi; `finding_uuid` dibuat HP dan menjadi UUID temuan ERP (rujukan tindak lanjut). */
+export const inspectionFindingSchema = z.object({
+  finding_uuid: uuid,
+  item_id: id.nullable(),
+  category: z.string().min(1),
+  severity: z.enum(FINDING_SEVERITIES),
+  description: z.string().trim().min(1),
+  row_no: count.nullable(),
+  tree_no: count.nullable(),
+  palm_tree_qr: z.string().nullable(),
+  lat: z.number().min(-90).max(90).nullable(),
+  lng: z.number().min(-180).max(180).nullable(),
+  photo_ids: z.array(uuid),
+});
+
+export const inspectionTaksasiSchema = z.object({
+  sampled_trees: count,
+  ripe_bunches_counted: count,
+  harvest_date_target: isoDate,
+});
+
+export const inspectionSensusSchema = z.object({
+  tree_count_productive: count,
+  tree_count_sisipan: count,
+  tree_count_dead: count,
+  tree_count_abnormal: count,
+});
+
+/**
+ * Inspeksi lapangan (cermin PAYLOAD_SPECS xerpium_sawit_mobile_inspection). Server menghitung ulang skor dengan
+ * model inspeksi ERP; selisih > 0,5 poin ditolak `score_mismatch`.
+ */
+export const inspectionPayloadSchema = z.object({
+  work_date: isoDate,
+  inspection_type: z.enum(INSPECTION_TYPES),
+  template_id: id,
+  block_id: id,
+  tph_id: id.nullable(),
+  harvester_employee_id: id.nullable(),
+  gang_id: id.nullable(),
+  sample_size: count,
+  lines: z.array(inspectionLineSchema),
+  findings: z.array(inspectionFindingSchema),
+  taksasi: inspectionTaksasiSchema.nullable(),
+  sensus: inspectionSensusSchema.nullable(),
+  score_pct: z.number().nonnegative(),
+  photo_ids: z.array(uuid),
+});
+
+/** Rujukan temuan untuk tindak lanjut: `finding_uuid` temuan dari HP, atau `id:<id ERP>` dari master temuan terbuka. */
+export const FINDING_REF_REGEX = /^(id:[1-9]\d*|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+
+export const inspectionFollowupPayloadSchema = z.object({
+  finding_ref: z.string().regex(FINDING_REF_REGEX, 'rujukan temuan tidak valid'),
+  action_text: z.string().trim().min(1),
+  done: z.boolean(),
+  photo_ids: z.array(uuid),
+});
+
 export const txPayloadSchemas = {
   attendance: attendancePayloadSchema,
   assignment: assignmentPayloadSchema,
@@ -219,6 +286,8 @@ export const txPayloadSchemas = {
   daily_report: dailyReportPayloadSchema,
   approval_decision: approvalDecisionPayloadSchema,
   stage_confirm: stageConfirmPayloadSchema,
+  inspection: inspectionPayloadSchema,
+  inspection_followup: inspectionFollowupPayloadSchema,
 } as const;
 
 export type TxTypeName = keyof typeof txPayloadSchemas;
@@ -240,6 +309,8 @@ export const txItemSchema = z.discriminatedUnion('type', [
   itemOf('daily_report'),
   itemOf('approval_decision'),
   itemOf('stage_confirm'),
+  itemOf('inspection'),
+  itemOf('inspection_followup'),
 ]);
 export type TxItem = z.infer<typeof txItemSchema>;
 

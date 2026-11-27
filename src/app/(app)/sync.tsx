@@ -35,6 +35,8 @@ const TYPE_LABEL: Record<string, string> = {
   daily_report: t('menu.dailyReport'),
   approval_decision: t('menu.approval'),
   stage_confirm: t('sync.stageConfirm'),
+  inspection: t('sync.inspection'),
+  inspection_followup: t('sync.inspectionFollowup'),
 };
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('id-ID') : t('sync.never'));

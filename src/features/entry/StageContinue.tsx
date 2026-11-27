@@ -2,6 +2,7 @@
  * Lanjutkan tiket kerja rawat (pemupukan, perawatan) dari detail tiket: tombol untuk mandor/kerani rawat dan status
  * Lanjutkan terakhir. Tiket panen memakai versi sendiri di layar tiket panen.
  */
+import { eq } from 'drizzle-orm';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
@@ -10,6 +11,7 @@ import { StatusPill } from '@/components/StatusPill';
 import { useTableQuery } from '@/db/provider';
 import { getDocument } from '@/db/repositories/documents';
 import { latestConfirmFor, validateContinueTicket } from '@/db/repositories/verification';
+import { gang } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
 import { reasonLabel } from '@/features/common/reason';
 import { continueTicket } from '@/features/harvest/stage';
@@ -19,9 +21,39 @@ import type { StageTargetType } from '@/sync/contract';
 
 type RawatTarget = Exclude<StageTargetType, 'harvest_ticket'>;
 
+/**
+ * Label tombol verifikasi sesuai peran pengguna untuk jenis tiket (sama dengan tombol ERP): mandor → Verifikasi
+ * Mandor, kerani → Verifikasi Kerani; punya keduanya → Verifikasi.
+ */
+export function useVerifyLabel(scope: 'panen' | 'rawat'): string {
+  const roles = useSession((s) => s.user?.roles) ?? [];
+  const mandor = roles.includes(scope === 'panen' ? 'mandor_panen' : 'mandor_rawat');
+  const kerani = roles.includes(scope === 'panen' ? 'kerani_panen' : 'kerani_rawat');
+  if (mandor && !kerani) return t('harvest.verifyMandor');
+  if (kerani && !mandor) return t('harvest.verifyKerani');
+  return t('harvest.continue');
+}
+
 /** User ini memverifikasi tiket kerja rawat (mandor rawat atau kerani rawat). */
 export function useRawatVerifier(): boolean {
   return useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_rawat' || r === 'kerani_rawat'));
+}
+
+/**
+ * "Simpan & Lanjutkan" untuk tiket di kemandoran `gangId`: kerani rawat selalu; mandor rawat hanya bila ia mandor
+ * atau mandor pengganti kemandoran itu — verifikasi mandor milik mandor kemandoran tiket (server menolak
+ * not_gang_mandor), mis. pekerja bantuan yang dicatat mandor panen di kemandoran rawat mandor lain. Tanpa
+ * employee_id dari server lama: tetap ditawarkan, server penentu akhir.
+ */
+export function useRawatContinue(gangId: number | null): boolean {
+  const { db } = useServices();
+  const user = useSession((s) => s.user);
+  const g = useTableQuery(['gang', String(gangId)], () => (gangId ? (db.select().from(gang).where(eq(gang.id, gangId)).get() ?? null) : null));
+  if (!user) return false;
+  if (user.roles.includes('kerani_rawat')) return true;
+  if (!user.roles.includes('mandor_rawat')) return false;
+  if (user.employee_id === undefined) return true;
+  return !!g && user.employee_id != null && (g.foremanEmployeeId === user.employee_id || g.actingForemanEmployeeId === user.employee_id);
 }
 
 /** Status Lanjutkan terakhir untuk tiket HP `ticketUuid` (kosong bila belum pernah dilanjutkan). */
@@ -37,11 +69,12 @@ export function ContinuePill({ ticketUuid }: { ticketUuid: string }) {
   );
 }
 
-/** Tombol Lanjutkan, hanya tampil bila user ini verifikator rawat dan tiket masih bisa dilanjutkan. */
+/** Tombol verifikasi (Lanjutkan tahap), hanya tampil bila user ini verifikator rawat dan tiket masih bisa diverifikasi. */
 export function ContinueButton({ type, ticketUuid }: { type: RawatTarget; ticketUuid: string }) {
   const services = useServices();
   const { db } = services;
   const verifier = useRawatVerifier();
+  const label = useVerifyLabel('rawat');
   const userId = useSession((s) => s.user?.id ?? 0);
   const canContinue = useTableQuery(['stage_confirm', type, ticketUuid, `user:${userId}`], () =>
     validateContinueTicket(db, ticketUuid, userId, type) === null,
@@ -53,7 +86,7 @@ export function ContinueButton({ type, ticketUuid }: { type: RawatTarget; ticket
     setBusy(true);
     try {
       const r = continueTicket(db, await services.txContext(), ticketUuid, type);
-      Alert.alert(t('harvest.continue'), r.ok ? t('harvest.continueSaved') : t(`harvest.continueError.${r.code}`));
+      Alert.alert(label, r.ok ? t('harvest.continueSaved') : t(`harvest.continueError.${r.code}`));
     } finally {
       setBusy(false);
     }
@@ -62,12 +95,12 @@ export function ContinueButton({ type, ticketUuid }: { type: RawatTarget; ticket
   return (
     <Button
       icon="check-decagram"
-      label={t('harvest.continue')}
+      label={label}
       busy={busy}
       onPress={() =>
         Alert.alert(t('harvest.continueTitle'), t('harvest.continueConfirm'), [
           { text: t('common.cancel'), style: 'cancel' },
-          { text: t('harvest.continue'), onPress: () => void run() },
+          { text: label, onPress: () => void run() },
         ])
       }
     />

@@ -4,6 +4,8 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
+import { defaultDueDate } from '../../src/features/inspection/calc';
+import { INFO_FLAGS } from './rules';
 import {
   MASTER_ENTITY_NAMES,
   type MasterEntityName,
@@ -212,6 +214,9 @@ export class Store {
   documentOf(item: TxItem) {
     if (item.type === 'harvest_ticket') return { name: item.payload.ticket_no, state: 'draft', state_label: 'Draft', net_kg: null };
     if (item.type === 'spb') return { name: item.payload.spb_no, state: 'departed', state_label: 'Berangkat', net_kg: null };
+    if (item.type === 'inspection') {
+      return { name: `INS-${item.mobile_uuid.slice(0, 8).toUpperCase()}`, state: 'done', state_label: 'Selesai', net_kg: null };
+    }
     if (item.type === 'fertilization_ticket' || item.type === 'maintenance_ticket') {
       const prefix = item.type === 'fertilization_ticket' ? 'PPK' : 'PRW';
       return { name: `${prefix}-${item.mobile_uuid.slice(0, 8).toUpperCase()}`, state: 'draft', state_label: 'Draft', net_kg: null };
@@ -223,11 +228,21 @@ export class Store {
     const tx = this.transactions.get(uuid);
     if (!tx) return { mobile_uuid: uuid, status: 'unknown' as const, reason: null, posted_at: null };
     if (tx.status === 'rejected') return { mobile_uuid: uuid, status: 'rejected' as const, reason: tx.reason, posted_at: null };
-    const postedAt = tx.receivedAt + this.opts.postDelayMs;
+    const postedAt = this.isPostedDirectly(tx) ? tx.receivedAt : tx.receivedAt + this.opts.postDelayMs;
     if (this.opts.now() >= postedAt) {
       return { mobile_uuid: uuid, status: 'posted' as const, reason: null, posted_at: new Date(postedAt).toISOString(), document: this.documentOf(tx.item) };
     }
     return { mobile_uuid: uuid, status: 'accepted' as const, reason: null, posted_at: null };
+  }
+
+  /**
+   * Seperti ERP: inspeksi & tindak lanjut diposting saat diterima, atau saat disetujui asisten bila menunggu
+   * (penanda selain informasi). Tipe lain memakai jeda posting tiruan.
+   */
+  private isPostedDirectly(tx: StoredTx): boolean {
+    if (tx.item.type !== 'inspection' && tx.item.type !== 'inspection_followup') return false;
+    if (tx.flags.every((f) => INFO_FLAGS.has(f))) return true;
+    return [...this.decisions.values()].some((d) => d.targetUuid === tx.item.mobile_uuid && d.decision === 'approve');
   }
 
   acceptedOfType<T extends TxTypeName>(type: T): Extract<TxItem, { type: T }>[] {
@@ -236,6 +251,46 @@ export class Store {
       if (tx.status === 'accepted' && tx.item.type === type) out.push(tx.item as Extract<TxItem, { type: T }>);
     }
     return out;
+  }
+
+  // ---- Inspeksi ----------------------------------------------------------
+  /**
+   * Tiruan posting inspeksi ERP pada master temuan terbuka: temuan inspeksi menjadi open_finding (koreksi
+   * menutup temuan inspeksi asal), tindak lanjut selesai menutup temuan, yang berjalan menandainya ditindaklanjuti.
+   */
+  postInspection(item: Extract<TxItem, { type: 'inspection' | 'inspection_followup' }>): void {
+    const findings = this.listMaster<{ id: number; mobile_uuid?: string | null; inspection_uuid?: string }>('open_finding');
+    if (item.type === 'inspection_followup') {
+      const ref = item.payload.finding_ref;
+      const target = ref.startsWith('id:') ? findings.find((f) => f.id === Number(ref.slice(3))) : findings.find((f) => f.mobile_uuid === ref);
+      if (!target) return;
+      if (item.payload.done) this.deleteMaster('open_finding', target.id);
+      else this.patchMaster('open_finding', target.id, { state: 'in_progress' });
+      return;
+    }
+    const original = item.meta.correction_of;
+    if (original) {
+      const old = this.transactions.get(original)?.item;
+      const oldUuids = new Set(old?.type === 'inspection' ? old.payload.findings.map((f) => f.finding_uuid) : []);
+      for (const f of findings) if (f.mobile_uuid && oldUuids.has(f.mobile_uuid)) this.deleteMaster('open_finding', f.id);
+    }
+    let nextId = Math.max(0, ...findings.map((f) => f.id)) + 1;
+    for (const f of item.payload.findings) {
+      this.upsertMaster('open_finding', {
+        id: nextId++,
+        mobile_uuid: f.finding_uuid,
+        inspection_id: this.transactions.get(item.mobile_uuid)?.serverId ?? null,
+        blok_id: item.payload.block_id,
+        category: f.category,
+        severity: f.severity,
+        description: f.description,
+        row_no: f.row_no,
+        tree_no: f.tree_no,
+        due_date: defaultDueDate(item.payload.work_date, f.severity),
+        pic_employee_id: null,
+        state: 'open',
+      });
+    }
   }
 
   // ---- Foto --------------------------------------------------------------

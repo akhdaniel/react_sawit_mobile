@@ -18,6 +18,8 @@ describe('migrasi', () => {
         'daily_report', 'doc_sequence', 'dosage_rule', 'employee', 'estate', 'fertilization_ticket', 'fertilization_verification_queue', 'gang', 'harvest_ticket', 'maintenance_ticket', 'maintenance_verification_queue',
         'harvest_rate', 'material_usage', 'photo', 'pks', 'product', 'spb', 'spb_line', 'sub_blok', 'sync_cursor', 'tph',
         'stage_confirm', 'tx_document', 'upkeep', 'vehicle', 'verification_queue', 'work_plan',
+        'inspection', 'inspection_finding', 'inspection_followup', 'inspection_item', 'inspection_template', 'open_finding',
+        'present_worker',
       ].sort(),
     );
   });
@@ -25,8 +27,8 @@ describe('migrasi', () => {
   it('memasang trigger append-only untuk setiap tabel transaksi', () => {
     const { sqlite } = createTestDb();
     const n = (sqlite.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger'").get() as { n: number }).n;
-    // 11 tabel × 4 trigger + 3 spb_line + 2 photo
-    expect(n).toBe(49);
+    // 13 tabel × 4 trigger + 3 spb_line + 3 inspection_finding + 2 photo
+    expect(n).toBe(60);
   });
 
   it('idempoten: migrasi ulang pada DB yang sama tidak mengulang apa pun', () => {

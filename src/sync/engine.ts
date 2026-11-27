@@ -27,7 +27,8 @@ import {
 } from '../db/repositories/outbox';
 import type { AppDatabase } from '../db/types';
 import { AuthRequiredError } from './api-client';
-import type { MasterRecord, MasterResponse, TxItem, VerificationsResponse } from './contract';
+import { replacePresentWorkers } from '../db/repositories/presence';
+import type { MasterRecord, MasterResponse, PresentWorker, TxItem, VerificationsResponse } from './contract';
 import { MAX_TX_BATCH } from './contract';
 import { ApiError, NetworkError } from './http';
 
@@ -40,9 +41,11 @@ export interface SyncApi {
   heartbeat(body: { app_version: string; battery: number | null; pending_count: number; last_sync_at: string | null }): Promise<void>;
   getApprovals(afdelingId: number): Promise<{ items: InboxItem[] }>;
   getVerifications(): Promise<Pick<VerificationsResponse, 'items' | 'fertilization_items' | 'maintenance_items'>>;
+  /** Absensi masuk tanggal kerja dari HP mana pun di afdeling user. */
+  getPresentWorkers(date: string): Promise<{ items: PresentWorker[] }>;
 }
 
-export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'verifications' | 'heartbeat';
+export type SyncStep = 'push' | 'photos' | 'status' | 'master' | 'workplan' | 'approvals' | 'verifications' | 'presence' | 'heartbeat';
 export const SYNC_STEPS: readonly SyncStep[] = [
   'push',
   'photos',
@@ -51,6 +54,7 @@ export const SYNC_STEPS: readonly SyncStep[] = [
   'workplan',
   'approvals',
   'verifications',
+  'presence',
   'heartbeat',
 ];
 
@@ -86,6 +90,8 @@ export interface SyncDeps {
   approvalAfdelingIds?: number[];
   /** Tarik antrean verifikasi tiket panen/pemupukan/perawatan (hanya untuk mandor dan kerani panen/rawat). */
   verificationEnabled?: boolean;
+  /** Tarik kehadiran hari ini dari server (mandor, kerani, asisten): pekerja bantuan dari HP lain. */
+  presenceEnabled?: boolean;
   batchSize?: number;
   statusChunk?: number;
   photoLimit?: number;
@@ -227,6 +233,19 @@ async function pullVerifications(d: SyncDeps, r: SyncResult): Promise<void> {
   r.verifications = { items: res.items.length + res.fertilization_items.length + res.maintenance_items.length };
 }
 
+async function pullPresence(d: SyncDeps): Promise<void> {
+  if (!d.presenceEnabled) return;
+  const date = d.workDate();
+  try {
+    const res = await d.api.getPresentWorkers(date);
+    replacePresentWorkers(d.db, date, res.items, d.nowIso());
+  } catch (err) {
+    // Server lama belum punya endpoint ini: kehadiran cukup dari absensi di HP ini.
+    if (err instanceof ApiError && err.status === 404) return;
+    throw err;
+  }
+}
+
 async function sendHeartbeat(d: SyncDeps): Promise<void> {
   await d.api.heartbeat({
     app_version: d.appVersion,
@@ -246,6 +265,7 @@ export async function runSync(d: SyncDeps): Promise<SyncResult> {
     ['workplan', () => pullWorkplan(d, r)],
     ['approvals', () => pullApprovals(d, r)],
     ['verifications', () => pullVerifications(d, r)],
+    ['presence', () => pullPresence(d)],
     ['heartbeat', () => sendHeartbeat(d)],
   ];
   try {

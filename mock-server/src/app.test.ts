@@ -9,6 +9,7 @@ import {
   errorResponseSchema,
   MASTER_ENTITY_NAMES,
   masterResponseSchema,
+  presentWorkersResponseSchema,
   transactionsResponseSchema,
   verificationsResponseSchema,
   transactionStatusResponseSchema,
@@ -666,5 +667,139 @@ describe('verifikasi tiket (Lanjutkan)', () => {
     assert.equal(r.results[0]!.reason, 'target_not_found');
     const transport = await login('kerani.transport');
     assert.equal((await call('GET', '/verifications', undefined, transport.access_token)).status, 403);
+  });
+});
+
+describe('kehadiran hari ini', () => {
+  it('absensi dari HP lain di afdeling user, dengan status pulang; peran lain ditolak', async () => {
+    const panen = await login('mandor.panen');
+    await call('POST', '/transactions', { items: [checkIn(panen.user.id, 2, 2)] }, panen.access_token);
+    const rawat = await login('mandor.rawat');
+    const r = presentWorkersResponseSchema.parse((await call('GET', `/attendance/present?date=${today}`, undefined, rawat.access_token)).json);
+    assert.deepEqual(r.items, [{ employee_id: 2, gang_id: 2, att_status: 'hadir', checked_out: false }]);
+    assert.equal((await call('GET', '/attendance/present', undefined, rawat.access_token)).status, 400);
+    const transport = await login('kerani.transport');
+    assert.equal((await call('GET', `/attendance/present?date=${today}`, undefined, transport.access_token)).status, 403);
+  });
+});
+
+describe('inspeksi', () => {
+  const MUTU_PANEN = 2;
+  const itemId = (templateId: number, code: string) =>
+    store.listMaster<{ id: number; template_id: number; code: string }>('inspection_item').find((i) => i.template_id === templateId && i.code === code)!.id;
+  const finding = (over: Record<string, unknown> = {}) => ({
+    finding_uuid: randomUUID(),
+    item_id: null,
+    category: 'brondolan_tinggal',
+    severity: 'major',
+    description: 'Brondolan tidak dikutip',
+    row_no: 12,
+    tree_no: 7,
+    palm_tree_qr: null,
+    lat: null,
+    lng: null,
+    photo_ids: [],
+    ...over,
+  });
+  const inspection = (userId: number, over: Record<string, unknown> = {}, metaOver: Record<string, unknown> = {}) => ({
+    type: 'inspection',
+    mobile_uuid: randomUUID(),
+    meta: meta(userId, metaOver),
+    payload: {
+      work_date: today,
+      inspection_type: 'mutu_panen',
+      template_id: MUTU_PANEN,
+      block_id: 1,
+      tph_id: null,
+      harvester_employee_id: null,
+      gang_id: null,
+      sample_size: 10,
+      lines: [],
+      findings: [],
+      taksasi: null,
+      sensus: null,
+      score_pct: 100,
+      photo_ids: [],
+      ...over,
+    },
+  });
+  const followup = (userId: number, ref: string, done = true) => ({
+    type: 'inspection_followup',
+    mobile_uuid: randomUUID(),
+    meta: meta(userId),
+    payload: { finding_ref: ref, action_text: 'Kutip brondolan ulang', done, photo_ids: [] },
+  });
+  const send = async (token: string, ...items: unknown[]) =>
+    transactionsResponseSchema.parse((await call('POST', '/transactions', { items }, token)).json).results;
+
+  it('master membawa template, item checklist, dan peran; login membawa employee_id', async () => {
+    const insp = await login('inspektur');
+    assert.deepEqual(insp.user.roles, ['inspektur']);
+    assert.equal(insp.user.employee_id, 61);
+    const m = masterResponseSchema.parse((await call('GET', '/master', undefined, insp.access_token)).json);
+    assert.equal(m.changes.inspection_template?.upserts.length, 7);
+    assert.equal(m.changes.inspection_item?.upserts.length, 15);
+    const mp = m.changes.inspection_template!.upserts.find((t) => t.code === 'MP-STD')!;
+    assert.deepEqual(mp.allowed_roles, ['inspektur', 'asisten', 'mandor_panen']);
+    const ult = m.changes.inspection_item!.upserts.find((i) => i.code === 'ULT')!;
+    assert.deepEqual([ult.select_options, ult.finding_severity], [['Tidak ada', 'Ringan', 'Sedang', 'Berat'], 'major']);
+    assert.ok(m.changes.block!.upserts.every((b) => b.tree_count_productive != null));
+  });
+
+  it('aturan sama dengan server: skor dihitung ulang, peran, item, taksasi', async () => {
+    const insp = await login('inspektur');
+    const brd = itemId(MUTU_PANEN, 'BRD');
+    const bad = { item_id: brd, value_num: 3, value_bool: null, value_text: null };
+    const [ok, mismatch, typeMismatch, taksasi] = await send(
+      insp.access_token,
+      inspection(insp.user.id, { lines: [bad], score_pct: 600 / 7, findings: [finding({ item_id: brd })] }),
+      inspection(insp.user.id, { lines: [bad], score_pct: 100 }),
+      inspection(insp.user.id, { inspection_type: 'taksasi' }),
+      inspection(insp.user.id, { inspection_type: 'taksasi', template_id: 1, score_pct: 0 }),
+    );
+    assert.equal(ok!.status, 'accepted');
+    assert.equal(mismatch!.reason, 'score_mismatch');
+    assert.equal(typeMismatch!.reason, 'template_type_mismatch');
+    assert.equal(taksasi!.reason, 'taksasi_required');
+    const kerani = await login('kerani.panen');
+    const [role] = await send(kerani.access_token, inspection(kerani.user.id));
+    assert.equal(role!.reason, 'role_not_allowed');
+  });
+
+  it('hanya temuan kritis yang masuk antrean asisten; temuan lain langsung menjadi temuan terbuka', async () => {
+    const mandor = await login('mandor.panen');
+    const major = inspection(mandor.user.id, { gang_id: 1, findings: [finding()] });
+    const critical = inspection(mandor.user.id, { findings: [finding({ severity: 'critical', category: 'hama' })] });
+    await send(mandor.access_token, major, critical);
+    // Mandor panen menilai kemandorannya sendiri (gang 1, mandor = karyawan 1).
+    assert.ok(store.transactions.get(major.mobile_uuid)!.flags.includes('self_inspection'));
+    assert.equal(store.listMaster('open_finding').length, 1);
+
+    const asisten = await login('asisten');
+    const list = approvalsResponseSchema.parse((await call('GET', '/approvals', undefined, asisten.access_token)).json);
+    assert.deepEqual(list.items.map((i) => i.target_uuid), [critical.mobile_uuid]);
+    assert.ok(list.items[0]!.summary.includes('1 temuan (1 kritis)'));
+    const decision = { mobile_uuid: randomUUID(), target_uuid: critical.mobile_uuid, target_type: 'inspection', decision: 'approve', note: null, corrected_json: null };
+    await call('POST', '/approvals', { items: [decision] }, asisten.access_token);
+    assert.equal(store.listMaster('open_finding').length, 2);
+    // Seperti ERP: langsung posted saat diterima / disetujui, tanpa jeda posting.
+    const status = transactionStatusResponseSchema.parse(
+      (await call('GET', `/transactions/status?ids=${major.mobile_uuid},${critical.mobile_uuid}`, undefined, mandor.access_token)).json,
+    );
+    assert.deepEqual(status.results.map((r) => r.status), ['posted', 'posted']);
+  });
+
+  it('tindak lanjut: peran lapangan saja; selesai menutup temuan terbuka', async () => {
+    const mandor = await login('mandor.panen');
+    const f = finding();
+    await send(mandor.access_token, inspection(mandor.user.id, { findings: [f] }));
+    const open = store.listMaster<{ id: number; mobile_uuid: string }>('open_finding')[0]!;
+    const kerani = await login('kerani.panen');
+    assert.equal((await send(kerani.access_token, followup(kerani.user.id, f.finding_uuid)))[0]!.reason, 'role_not_allowed');
+    assert.equal((await send(mandor.access_token, followup(mandor.user.id, 'id:999')))[0]!.reason, 'finding_not_found');
+    await send(mandor.access_token, followup(mandor.user.id, `id:${open.id}`, false));
+    assert.equal(store.getMaster<{ id: number; state: string }>('open_finding', open.id)!.state, 'in_progress');
+    await send(mandor.access_token, followup(mandor.user.id, f.finding_uuid, true));
+    assert.equal(store.getMaster('open_finding', open.id), null);
   });
 });

@@ -48,3 +48,20 @@ export function isInsideGeojson(lat: number, lng: number, geojson: unknown): boo
   if (polys.length === 0) return null;
   return polys.some((p) => inPolygon(lng, lat, p));
 }
+
+/** Titik tengah (rata-rata titik ring luar) polygon GeoJSON; null bila polygon tidak tersedia. */
+export function geojsonCenter(geojson: unknown): { lat: number; lng: number } | null {
+  const points = parsePolygons(geojson).flatMap((p) => (p[0] ?? []).slice(0, -1));
+  if (points.length === 0) return null;
+  const sum = points.reduce((acc, [lng, lat]) => ({ lng: acc.lng + lng!, lat: acc.lat + lat! }), { lng: 0, lat: 0 });
+  return { lat: sum.lat / points.length, lng: sum.lng / points.length };
+}
+
+/** Jarak dua titik (meter, haversine). */
+export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}

@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm';
-import { Image, ScrollView, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet } from 'react-native';
 
 import { Card, SectionTitle } from '@/components/Card';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
 import { photo } from '@/db/schema';
@@ -9,7 +11,7 @@ import { t } from '@/i18n/id';
 import { useServices } from '@/lib/services';
 import { radius, spacing } from '@/theme';
 
-/** Foto bukti yang tersimpan di HP untuk satu transaksi (atau daftar id foto). */
+/** Foto bukti yang tersimpan di HP untuk satu transaksi (atau daftar id foto); ketuk untuk pratinjau layar penuh. */
 export function EntryPhotos({ transactionUuid, photoIds }: { transactionUuid?: string; photoIds?: string[] }) {
   const { db } = useServices();
   const rows = useTableQuery(['photo', transactionUuid ?? '', (photoIds ?? []).join(',')], () => {
@@ -18,6 +20,7 @@ export function EntryPhotos({ transactionUuid, photoIds }: { transactionUuid?: s
     const seen = new Set<string>();
     return [...linked, ...byId].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
   });
+  const [preview, setPreview] = useState<number | null>(null);
 
   return (
     <>
@@ -28,11 +31,14 @@ export function EntryPhotos({ transactionUuid, photoIds }: { transactionUuid?: s
         </Card>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-          {rows.map((p) => (
-            <Image key={p.id} source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('entry.photos')} />
+          {rows.map((p, i) => (
+            <Pressable key={p.id} accessibilityRole="imagebutton" onPress={() => setPreview(i)}>
+              <Image source={{ uri: p.localUri }} style={styles.img} accessibilityLabel={t('entry.photos')} />
+            </Pressable>
           ))}
         </ScrollView>
       )}
+      <PhotoViewer uris={rows.map((p) => p.localUri)} index={preview} onClose={() => setPreview(null)} />
     </>
   );
 }

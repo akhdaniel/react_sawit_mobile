@@ -15,6 +15,7 @@ import { canCorrect, ticketView } from '@/db/repositories/harvest';
 import { latestConfirmFor, validateContinueTicket } from '@/db/repositories/verification';
 import { harvestTicket } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
+import { useVerifyLabel } from '@/features/entry/StageContinue';
 import { reasonLabel } from '@/features/common/reason';
 import { DocumentStatus } from '@/features/entry/DocumentStatus';
 import { totalBunches } from '@/features/harvest/calc';
@@ -45,6 +46,7 @@ export default function HarvestTicketScreen() {
 
   const [printing, setPrinting] = useState(false);
   const [continuing, setContinuing] = useState(false);
+  const verifyLabel = useVerifyLabel('panen');
 
   if (!tk) {
     return (
@@ -98,7 +100,7 @@ export default function HarvestTicketScreen() {
     setContinuing(true);
     try {
       const r = continueTicket(db, await services.txContext(), tk.mobileUuid);
-      Alert.alert(t('harvest.continue'), r.ok ? t('harvest.continueSaved') : t(`harvest.continueError.${r.code}`));
+      Alert.alert(verifyLabel, r.ok ? t('harvest.continueSaved') : t(`harvest.continueError.${r.code}`));
     } finally {
       setContinuing(false);
     }
@@ -107,7 +109,7 @@ export default function HarvestTicketScreen() {
   const askContinue = () =>
     Alert.alert(t('harvest.continueTitle'), t('harvest.continueConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: t('harvest.continue'), onPress: () => void doContinue() },
+      { text: verifyLabel, onPress: () => void doContinue() },
     ]);
 
   return (
@@ -141,7 +143,7 @@ export default function HarvestTicketScreen() {
       </Card>
       <DocumentStatus mobileUuid={tk.mobileUuid} status={tk.status} />
       {verifier && canContinue && (
-        <Button icon="check-decagram" label={t('harvest.continue')} busy={continuing} onPress={askContinue} />
+        <Button icon="check-decagram" label={verifyLabel} busy={continuing} onPress={askContinue} />
       )}
       <Button kind="outline" icon="form-select" label={t('entry.viewForm')} onPress={() => router.push({ pathname: '/harvest/entry/[id]', params: { id: tk.mobileUuid } })} />
       <Button kind="outline" icon="printer" label={t('harvest.print')} busy={printing} onPress={() => void print()} />

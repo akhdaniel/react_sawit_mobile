@@ -141,6 +141,34 @@
       "when": 1794992406759,
       "tag": "0019_maintenance_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1795742327375,
+      "tag": "0020_inspection",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795742331057,
+      "tag": "0021_append_only_guards_v7",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1795742335002,
+      "tag": "0022_reset_master_cursor_inspection",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1795763433104,
+      "tag": "0023_present_worker",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,8 @@ export type MenuKey =
   | 'fertilization'
   | 'approval'
   | 'daily_report'
+  | 'inspection'
+  | 'findings'
   | 'sync';
 
 export interface MenuItem {
@@ -35,8 +37,13 @@ export interface MenuItem {
     | '/maintenance'
     | '/fertilization'
     | '/approval'
-    | '/daily-report';
+    | '/daily-report'
+    | '/inspection'
+    | '/findings';
 }
+
+/** Peran yang melihat menu inspeksi & temuan; template menentukan jenis inspeksi yang boleh dibuat tiap peran. */
+const INSPECTION_ROLES: readonly Role[] = ['inspektur', 'asisten', 'mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'];
 
 export const MENU: readonly MenuItem[] = [
   { key: 'attendance', icon: 'account-check', label: 'menu.attendance', roles: ['mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'], stage: 4, route: '/attendance' },
@@ -48,6 +55,8 @@ export const MENU: readonly MenuItem[] = [
   { key: 'fertilization', icon: 'sack', label: 'menu.fertilization', roles: ['mandor_rawat', 'kerani_rawat'], stage: 7, route: '/fertilization' },
   { key: 'approval', icon: 'check-decagram', label: 'menu.approval', roles: ['asisten'], stage: 8, route: '/approval' },
   { key: 'daily_report', icon: 'file-document-edit', label: 'menu.dailyReport', roles: ['mandor_panen', 'mandor_rawat', 'asisten'], stage: 8, route: '/daily-report' },
+  { key: 'inspection', icon: 'clipboard-check-outline', label: 'menu.inspection', roles: INSPECTION_ROLES, stage: 9, route: '/inspection' },
+  { key: 'findings', icon: 'alert-circle-check', label: 'menu.findings', roles: INSPECTION_ROLES, stage: 9, route: '/findings' },
   { key: 'sync', icon: 'sync', label: 'menu.sync', roles: 'all', stage: 3, route: '/sync' },
 ];
 

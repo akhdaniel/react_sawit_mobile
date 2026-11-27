@@ -33,6 +33,10 @@ export const blockSchema = z.object({
   polygon_geojson: geojson,
   /** Jumlah pokok blok: batas pokok dipupuk per tiket pemupukan (0/kosong = tidak dibatasi). */
   tree_count: z.int().nonnegative().nullish(),
+  /** Rincian pokok master blok: dasar estimasi taksasi dan pembanding sensus (kosong dari server lama). */
+  tree_count_productive: z.int().nonnegative().nullish(),
+  tree_count_sisipan: z.int().nonnegative().nullish(),
+  tree_count_dead: z.int().nonnegative().nullish(),
 });
 
 export const tphSchema = z.object({
@@ -68,6 +72,8 @@ export const gangSchema = z.object({
   afdeling_id: id,
   /** Jenis kemandoran ERP; tiket pemupukan hanya untuk kemandoran rawat. */
   gang_type: z.enum(['panen', 'rawat']).nullish(),
+  /** Mandor pengganti; ikut dianggap mandor kemandoran (penilaian sendiri pada inspeksi). */
+  acting_foreman_employee_id: id.nullish(),
 });
 
 export const activitySchema = z.object({
@@ -225,6 +231,79 @@ export const workPlanSchema = z.object({
   target_bunch: z.int().nonnegative().nullish(),
 });
 
+// ---- Inspeksi & QC (cermin xerpium_plantation_inspection) -----------------
+export const INSPECTION_TYPES = ['taksasi', 'mutu_panen', 'mutu_rawat', 'sensus', 'hama_penyakit', 'infrastruktur', 'umum'] as const;
+export type InspectionType = (typeof INSPECTION_TYPES)[number];
+export const SAMPLE_UNITS = ['pokok', 'ancak', 'tph', 'blok', 'titik'] as const;
+export const INSPECTION_VALUE_TYPES = ['count', 'number', 'bool', 'score_1_5', 'select', 'text'] as const;
+export type InspectionValueType = (typeof INSPECTION_VALUE_TYPES)[number];
+export const BAD_WHEN = ['gt', 'lt', 'true', 'false', 'in'] as const;
+export const FINDING_SEVERITIES = ['minor', 'major', 'critical'] as const;
+export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
+/** Kategori temuan ERP. Master memakai teks biasa agar kategori baru di ERP tidak memutus sinkron. */
+export const FINDING_CATEGORIES = [
+  'brondolan_tinggal',
+  'buah_mentah_dipanen',
+  'buah_matang_tinggal',
+  'pelepah_tidak_disusun',
+  'tangkai_panjang',
+  'piringan_kotor',
+  'gawangan_kotor',
+  'pupuk_tidak_tepat',
+  'hama',
+  'penyakit',
+  'pokok_mati',
+  'pokok_abnormal',
+  'infrastruktur_rusak',
+  'lainnya',
+] as const;
+
+/** Template checklist inspeksi; `allowed_roles` = peran HP yang boleh membuat inspeksi dengan template ini. */
+export const inspectionTemplateSchema = z.object({
+  id,
+  code: z.string().min(1),
+  name: z.string().min(1),
+  inspection_type: z.enum(INSPECTION_TYPES),
+  sample_unit: z.enum(SAMPLE_UNITS),
+  default_sample_size: z.int().nonnegative(),
+  pass_score_pct: z.number().min(0).max(100),
+  allowed_roles: z.array(z.string()),
+});
+
+export const inspectionItemSchema = z.object({
+  id,
+  template_id: id,
+  sequence: z.int(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  value_type: z.enum(INSPECTION_VALUE_TYPES),
+  select_options: z.array(z.string()),
+  uom: z.string().nullish(),
+  weight: z.number().nonnegative(),
+  bad_when: z.enum(BAD_WHEN).nullish(),
+  threshold: z.number(),
+  threshold_text: z.string().nullish(),
+  finding_category: z.string().nullish(),
+  finding_severity: z.enum(FINDING_SEVERITIES).nullish().transform((v) => v ?? 'minor'),
+  required: z.boolean(),
+});
+
+/** Temuan terbuka/ditindaklanjuti ERP (semua afdeling; HP menyaring ke afdeling pengguna). */
+export const openFindingSchema = z.object({
+  id,
+  mobile_uuid: z.string().nullish(),
+  inspection_id: id.nullish(),
+  blok_id: id,
+  category: z.string().min(1),
+  severity: z.enum(FINDING_SEVERITIES),
+  description: z.string(),
+  row_no: z.int().nonnegative().nullish(),
+  tree_no: z.int().nonnegative().nullish(),
+  due_date: z.iso.date().nullish(),
+  pic_employee_id: id.nullish(),
+  state: z.enum(['open', 'in_progress']),
+});
+
 export const masterSchemas = {
   estate: estateSchema,
   afdeling: afdelingSchema,
@@ -240,6 +319,9 @@ export const masterSchemas = {
   sub_blok: subBlokSchema,
   harvest_rate: harvestRateSchema,
   pks: pksSchema,
+  inspection_template: inspectionTemplateSchema,
+  inspection_item: inspectionItemSchema,
+  open_finding: openFindingSchema,
 } as const;
 
 export type MasterEntityName = keyof typeof masterSchemas;
