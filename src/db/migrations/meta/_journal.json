@@ -162,6 +162,13 @@
       "when": 1795742335002,
       "tag": "0022_reset_master_cursor_inspection",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1795763433104,
+      "tag": "0023_present_worker",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ import {
   maintenanceVerificationQueue,
   MASTER_ENTITIES,
   masterTables,
+  presentWorker,
   syncCursor,
   verificationQueue,
   type MasterEntity,
@@ -127,6 +128,7 @@ export function resetServerData(db: AppDatabase): void {
     tx.delete(verificationQueue).run();
     tx.delete(fertilizationVerificationQueue).run();
     tx.delete(maintenanceVerificationQueue).run();
+    tx.delete(presentWorker).run();
   });
 }
 

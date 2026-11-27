@@ -7,12 +7,15 @@
  *   sebagai check-in berstatus tersebut (tidak dianggap hadir).
  * - Satu pekerja hanya check-in di satu gang per hari; check-out butuh check-in hadir di
  *   gang yang sama.
+ * - Kehadiran = absensi di HP ini ditambah absensi dari HP lain yang ditarik dari server (presence), sehingga
+ *   pekerja bantuan dari kemandoran/HP lain dikenali hadir dan tidak diabsen ulang di kemandoran lain.
  */
 import { and, eq, inArray, ne } from 'drizzle-orm';
 
 import { attendance, employee, gang } from '../schema';
 import type { AppDatabase } from '../types';
 import { insertPhoto, linkPhoto, type NewPhoto } from './photos';
+import { serverPresence } from './presence';
 
 export type AttendanceRow = typeof attendance.$inferSelect;
 export type AttStatus = AttendanceRow['attStatus'];
@@ -53,7 +56,43 @@ export function isPresent(d: DayAttendance | undefined): boolean {
 export function presentEmployeeIds(db: AppDatabase, workDate: string): Set<number> {
   const out = new Set<number>();
   for (const [id, d] of attendanceByEmployee(db, workDate)) if (isPresent(d)) out.add(id);
+  for (const [id, p] of serverPresence(db, workDate)) if (PRESENT_STATUSES.includes(p.attStatus)) out.add(id);
   return out;
+}
+
+export interface PresentFieldWorker {
+  id: number;
+  name: string;
+  /** Kemandoran tempat pekerja diabsen hari itu. */
+  gangId: number;
+  gangName: string;
+  /** Diabsen di kemandoran lain (pekerja bantuan untuk kemandoran yang dipilih). */
+  helper: boolean;
+}
+
+/**
+ * Pekerja hadir yang belum pulang untuk tiket kerja lapangan kemandoran `gangId`: anggota yang diabsen di kemandoran
+ * itu, lalu pekerja bantuan yang diabsen di kemandoran lain (dari HP ini atau HP lain), urut nama.
+ */
+export function presentFieldWorkers(db: AppDatabase, workDate: string, gangId: number | null): PresentFieldWorker[] {
+  const byEmployee = new Map<number, number>();
+  for (const [id, p] of serverPresence(db, workDate)) {
+    if (PRESENT_STATUSES.includes(p.attStatus) && !p.checkedOut) byEmployee.set(id, p.gangId);
+  }
+  // Absensi di HP ini lebih baru dari cache server (mis. belum sinkron, sudah pulang).
+  for (const [id, d] of attendanceByEmployee(db, workDate)) {
+    if (isPresent(d) && !d.checkOut) byEmployee.set(id, d.checkIn!.gangId);
+    else byEmployee.delete(id);
+  }
+  if (byEmployee.size === 0) return [];
+  const emps = db.select().from(employee).where(inArray(employee.id, [...byEmployee.keys()])).all();
+  const gangs = new Map(db.select().from(gang).where(inArray(gang.id, [...new Set(byEmployee.values())])).all().map((g) => [g.id, g.name]));
+  return emps
+    .map((e) => {
+      const g = byEmployee.get(e.id)!;
+      return { id: e.id, name: e.name, gangId: g, gangName: gangs.get(g) ?? `#${g}`, helper: g !== gangId };
+    })
+    .sort((a, b) => Number(a.helper) - Number(b.helper) || a.name.localeCompare(b.name));
 }
 
 export type AttendanceErrorCode =
@@ -89,6 +128,7 @@ export function validateCheckIns(db: AppDatabase, workDate: string, gangId: numb
   const ids = entries.map((e) => e.employeeId);
   const emps = new Map(db.select().from(employee).where(inArray(employee.id, ids)).all().map((e) => [e.id, e]));
   const day = attendanceByEmployee(db, workDate, ids);
+  const server = serverPresence(db, workDate);
   const issues: AttendanceIssue[] = [];
   const seen = new Set<number>();
   for (const e of entries) {
@@ -97,7 +137,8 @@ export function validateCheckIns(db: AppDatabase, workDate: string, gangId: numb
     else if (!emp.active) issues.push({ employeeId: e.employeeId, code: 'employee_inactive' });
     else if (seen.has(e.employeeId)) issues.push({ employeeId: e.employeeId, code: 'already_checked_in' });
     else {
-      const existing = day.get(e.employeeId)?.checkIn;
+      // Absen dari HP lain (cache server) juga dihitung: server menolak absen kedua di hari yang sama.
+      const existing = day.get(e.employeeId)?.checkIn ?? server.get(e.employeeId);
       if (existing) {
         if (existing.gangId === gangId) issues.push({ employeeId: e.employeeId, code: 'already_checked_in' });
         else {

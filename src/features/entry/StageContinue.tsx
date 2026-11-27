@@ -2,6 +2,7 @@
  * Lanjutkan tiket kerja rawat (pemupukan, perawatan) dari detail tiket: tombol untuk mandor/kerani rawat dan status
  * Lanjutkan terakhir. Tiket panen memakai versi sendiri di layar tiket panen.
  */
+import { eq } from 'drizzle-orm';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
@@ -10,6 +11,7 @@ import { StatusPill } from '@/components/StatusPill';
 import { useTableQuery } from '@/db/provider';
 import { getDocument } from '@/db/repositories/documents';
 import { latestConfirmFor, validateContinueTicket } from '@/db/repositories/verification';
+import { gang } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
 import { reasonLabel } from '@/features/common/reason';
 import { continueTicket } from '@/features/harvest/stage';
@@ -22,6 +24,23 @@ type RawatTarget = Exclude<StageTargetType, 'harvest_ticket'>;
 /** User ini memverifikasi tiket kerja rawat (mandor rawat atau kerani rawat). */
 export function useRawatVerifier(): boolean {
   return useSession((s) => !!s.user?.roles.some((r) => r === 'mandor_rawat' || r === 'kerani_rawat'));
+}
+
+/**
+ * "Simpan & Lanjutkan" untuk tiket di kemandoran `gangId`: kerani rawat selalu; mandor rawat hanya bila ia mandor
+ * atau mandor pengganti kemandoran itu — verifikasi mandor milik mandor kemandoran tiket (server menolak
+ * not_gang_mandor), mis. pekerja bantuan yang dicatat mandor panen di kemandoran rawat mandor lain. Tanpa
+ * employee_id dari server lama: tetap ditawarkan, server penentu akhir.
+ */
+export function useRawatContinue(gangId: number | null): boolean {
+  const { db } = useServices();
+  const user = useSession((s) => s.user);
+  const g = useTableQuery(['gang', String(gangId)], () => (gangId ? (db.select().from(gang).where(eq(gang.id, gangId)).get() ?? null) : null));
+  if (!user) return false;
+  if (user.roles.includes('kerani_rawat')) return true;
+  if (!user.roles.includes('mandor_rawat')) return false;
+  if (user.employee_id === undefined) return true;
+  return !!g && user.employee_id != null && (g.foremanEmployeeId === user.employee_id || g.actingForemanEmployeeId === user.employee_id);
 }
 
 /** Status Lanjutkan terakhir untuk tiket HP `ticketUuid` (kosong bila belum pernah dilanjutkan). */

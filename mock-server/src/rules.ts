@@ -68,7 +68,7 @@ function exists(store: Store, entity: Parameters<Store['getMaster']>[0], id: num
 }
 
 /** Absensi efektif (koreksi menggantikan baris asal) — sama dengan aturan di HP. */
-function effectiveCheckIns(store: Store, date: string) {
+export function effectiveCheckIns(store: Store, date: string) {
   const rows = store.acceptedOfType('attendance').filter((a) => a.payload.work_date === date && a.payload.type === 'check_in');
   const superseded = new Set(rows.map((r) => r.meta.correction_of).filter(Boolean));
   return rows.filter((r) => !superseded.has(r.mobile_uuid));

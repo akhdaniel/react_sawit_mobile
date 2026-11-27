@@ -19,7 +19,7 @@ import {
   type MasterEntityName,
   type TxItem,
 } from '../../src/sync/contract';
-import { afdelingOf, evaluate, INFO_FLAGS, summarize } from './rules';
+import { afdelingOf, effectiveCheckIns, evaluate, INFO_FLAGS, summarize } from './rules';
 import type { Store } from './store';
 
 export const API_PREFIX = '/xsm/v1';
@@ -220,6 +220,26 @@ export function createApp(store: Store) {
       return { mobile_uuid: d.mobile_uuid, status: 'accepted' as const, reason: null };
     });
     res.json({ results });
+  });
+
+  // ---- Kehadiran hari ini ------------------------------------------------
+  // Seperti ERP: absensi masuk efektif tanggal itu di afdeling user dari HP mana pun, dengan status pulang.
+  api.get('/attendance/present', requireAuth, (req, res) => {
+    const { user } = (req as Authed).session;
+    if (!['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat', 'asisten'].some((r) => user.roles.includes(r as never))) {
+      throw new HttpError(403, 'forbidden', 'hanya mandor, kerani, atau asisten');
+    }
+    const date = parse(isoDate, req.query.date);
+    const outs = store.acceptedOfType('attendance').filter((a) => a.payload.work_date === date && a.payload.type === 'check_out');
+    const items = effectiveCheckIns(store, date)
+      .filter((a) => user.afdeling_ids.includes(store.getMaster<{ id: number; afdeling_id: number }>('gang', a.payload.gang_id)?.afdeling_id ?? -1))
+      .map((a) => ({
+        employee_id: a.payload.employee_id,
+        gang_id: a.payload.gang_id,
+        att_status: a.payload.att_status,
+        checked_out: outs.some((o) => o.payload.employee_id === a.payload.employee_id),
+      }));
+    res.json({ date, items });
   });
 
   // ---- Verifikasi tiket --------------------------------------------------

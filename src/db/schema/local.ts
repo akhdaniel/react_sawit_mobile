@@ -100,6 +100,23 @@ export const fertilizationVerificationQueue = sqliteTable('fertilization_verific
   fetchedAt: text('fetched_at').notNull(),
 });
 
+/**
+ * Cache absensi masuk hari kerja dari GET /attendance/present (milik server, ditarik saat sinkron): pekerja yang
+ * diabsen di HP lain dikenali hadir (pekerja bantuan) dan tidak diabsen ulang di kemandoran lain.
+ */
+export const presentWorker = sqliteTable(
+  'present_worker',
+  {
+    workDate: text('work_date').notNull(),
+    employeeId: integer('employee_id').notNull(),
+    gangId: integer('gang_id').notNull(),
+    attStatus: text('att_status', { enum: ['hadir', 'terlambat', 'sakit', 'izin', 'mangkir'] }).notNull(),
+    checkedOut: integer('checked_out', { mode: 'boolean' }).notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workDate, t.employeeId] })],
+);
+
 /** Baris material tiket perawatan di antrean verifikasi (untuk ditampilkan saja). */
 export interface QueuedMaterial {
   name: string;

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { pendingInbox } from '@/db/repositories/approval';
 import { pendingFertilizationVerifications, pendingVerifications } from '@/db/repositories/verification';
 import { applyMasterChanges, getCursor } from '@/db/repositories/master';
+import { serverPresence } from '@/db/repositories/presence';
 import { getMeta } from '@/db/repositories/meta';
 import { attendance, block, harvestTicket, photo, workPlan } from '@/db/schema';
 import { AuthRequiredError } from '@/sync/api-client';
@@ -95,6 +96,10 @@ function fakeApi(over: Partial<SyncApi> = {}) {
       calls.push('verifications');
       return { items: [queued(1), queued(2)], fertilization_items: [fertilizationQueued(1)], maintenance_items: [] };
     },
+    async getPresentWorkers(date) {
+      calls.push(`presence:${date}`);
+      return { items: [{ employee_id: 31, gang_id: 4, att_status: 'hadir' as const, checked_out: false }] };
+    },
     ...over,
   };
   return { api, calls };
@@ -125,7 +130,7 @@ describe('runSync', () => {
     const r = await runSync(deps(db, api, { onStep: (s) => steps.push(s) }));
 
     expect(r.ok).toBe(true);
-    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'verifications', 'heartbeat']);
+    expect(steps).toEqual(['push', 'photos', 'status', 'master', 'workplan', 'approvals', 'verifications', 'presence', 'heartbeat']);
     expect(calls).toEqual(['push:2', 'photo', 'status:2', 'master:', 'workplan:2026-10-18', 'heartbeat:0']);
     expect(r.push).toMatchObject({ sent: 2, accepted: 2 });
     expect(db.select().from(attendance).get()?.status).toBe('accepted');
@@ -159,6 +164,25 @@ describe('runSync', () => {
     await runSync(deps(db, later.api, { verificationEnabled: true }));
     expect(pendingVerifications(db, 1).map((v) => v.coreTicketId)).toEqual([2]);
     expect(pendingFertilizationVerifications(db, 1)).toEqual([]);
+  });
+
+  it('kehadiran hari ini dari server disimpan; server lama tanpa endpoint (404) tidak dianggap gagal', async () => {
+    const { db } = createTestDb();
+    const { api, calls } = fakeApi();
+    const r = await runSync(deps(db, api, { presenceEnabled: true }));
+    expect(calls).toContain('presence:2026-10-18');
+    expect(r.errors).toEqual([]);
+    expect([...serverPresence(db, '2026-10-18').keys()]).toEqual([31]);
+
+    const old = fakeApi({
+      getPresentWorkers: async () => {
+        throw new ApiError(404, 'not_found', 'Not Found');
+      },
+    });
+    const r2 = await runSync(deps(db, old.api, { presenceEnabled: true }));
+    expect(r2.errors).toEqual([]);
+    // Cache terakhir tetap dipakai.
+    expect([...serverPresence(db, '2026-10-18').keys()]).toEqual([31]);
   });
 
   it('peran lain: antrean verifikasi tidak ditarik', async () => {

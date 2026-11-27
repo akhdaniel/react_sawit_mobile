@@ -237,6 +237,21 @@ export const verificationsResponseSchema = z.object({
 });
 export type VerificationsResponse = z.infer<typeof verificationsResponseSchema>;
 
+// ---- Kehadiran hari ini ---------------------------------------------------
+/** Absensi masuk efektif di afdeling user dari HP mana pun (pekerja bantuan, cegah absen ganda). */
+export const presentWorkerSchema = z.object({
+  employee_id: id,
+  gang_id: id,
+  att_status: z.enum(['hadir', 'terlambat', 'sakit', 'izin', 'mangkir']),
+  checked_out: z.boolean(),
+});
+export type PresentWorker = z.infer<typeof presentWorkerSchema>;
+export const presentWorkersResponseSchema = z.object({
+  date: z.iso.date(),
+  items: z.array(presentWorkerSchema),
+  server_time: serverTime,
+});
+
 // ---- Device --------------------------------------------------------------
 export const heartbeatRequestSchema = z.object({
   app_version: z.string().min(1),

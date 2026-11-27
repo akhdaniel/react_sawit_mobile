@@ -2,11 +2,13 @@ import {
   attendanceByEmployee,
   defaultCheckInStatus,
   presentEmployeeIds,
+  presentFieldWorkers,
   saveAttendance,
   validateCheckIns,
   validateCheckOuts,
   validateCorrection,
 } from '@/db/repositories/attendance';
+import { replacePresentWorkers } from '@/db/repositories/presence';
 import { attendance, photo } from '@/db/schema';
 import { createTestDb } from '@/test/db';
 import { attendanceRow, photoRow, seedMaster } from '@/test/fixtures';
@@ -18,6 +20,45 @@ function setup() {
   seedMaster(db, D);
   return db;
 }
+
+describe('absensi lintas HP (kehadiran dari server)', () => {
+  // seedMaster: gang 1 (pekerja 10, 11), gang 2 (pekerja 20). Pekerja 20 diabsen di HP lain di gang 2.
+  const fromServer = (over: Partial<{ employee_id: number; gang_id: number; att_status: 'hadir' | 'sakit'; checked_out: boolean }> = {}) => ({
+    employee_id: 20,
+    gang_id: 2,
+    att_status: 'hadir' as const,
+    checked_out: false,
+    ...over,
+  });
+
+  it('pekerja bantuan dari kemandoran/HP lain hadir dan bisa dipilih di kemandoran yang dipilih', () => {
+    const db = setup();
+    saveAttendance(db, [attendanceRow({ employeeId: 10, gangId: 1, workDate: D })]);
+    replacePresentWorkers(db, D, [fromServer()], `${D}T02:00:00Z`);
+    expect(presentEmployeeIds(db, D)).toEqual(new Set([10, 20]));
+    expect(presentFieldWorkers(db, D, 1).map((w) => [w.id, w.helper, w.gangName])).toEqual([
+      [10, false, 'Panen 1'],
+      [20, true, 'Panen 2'],
+    ]);
+    expect(presentFieldWorkers(db, D, 2).find((w) => w.id === 20)?.helper).toBe(false);
+  });
+
+  it('sudah pulang atau tidak hadir menurut server: tidak bisa dipilih', () => {
+    const db = setup();
+    replacePresentWorkers(db, D, [fromServer({ checked_out: true }), fromServer({ employee_id: 11, gang_id: 1, att_status: 'sakit' })], D);
+    expect(presentFieldWorkers(db, D, 1)).toEqual([]);
+    expect(presentEmployeeIds(db, D)).toEqual(new Set([20]));
+  });
+
+  it('absen ganda di kemandoran lain ditolak di HP, seperti di server', () => {
+    const db = setup();
+    replacePresentWorkers(db, D, [fromServer()], D);
+    expect(validateCheckIns(db, D, 1, [{ employeeId: 20, attStatus: 'hadir' }])).toEqual([
+      { employeeId: 20, code: 'checked_in_other_gang', otherGang: 'Panen 2' },
+    ]);
+    expect(validateCheckIns(db, D, 2, [{ employeeId: 20, attStatus: 'hadir' }])).toEqual([{ employeeId: 20, code: 'already_checked_in' }]);
+  });
+});
 
 describe('absensi', () => {
   it('validasi check-in: nonaktif, tidak dikenal, alasan terlambat', () => {

@@ -194,6 +194,10 @@ function createServices(db: AppDatabase): AppServices {
           const roles = useSession.getState().user?.roles ?? [];
           return canAccess('verification', roles);
         })(),
+        presenceEnabled: (() => {
+          const roles = useSession.getState().user?.roles ?? [];
+          return canAccess('attendance', roles) || roles.includes('asisten');
+        })(),
       });
       useSync.getState().setResult(result);
       return result;

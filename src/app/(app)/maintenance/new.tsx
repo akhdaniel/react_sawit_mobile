@@ -5,7 +5,7 @@
  * mempertahankan blok, jenis perawatan, dan material untuk pekerja berikutnya. Mandor/kerani rawat bisa
  * "Simpan & Lanjutkan": tiket langsung maju ke tahap verifikasinya saat sinkron.
  */
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -18,13 +18,13 @@ import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
 import { Txt } from '@/components/Txt';
 import { useTableQuery } from '@/db/provider';
-import { attendanceByEmployee, isPresent } from '@/db/repositories/attendance';
 import { rawatGangs } from '@/db/repositories/fertilization';
 import { subBloksOf } from '@/db/repositories/harvest';
 import { maintenanceEstimate, maintenanceMaterials, type MaintenanceTicketRow } from '@/db/repositories/maintenance';
-import { block, employee, maintenanceTicket, type MaintenanceMaterial } from '@/db/schema';
+import { block, maintenanceTicket, type MaintenanceMaterial } from '@/db/schema';
 import { useSession } from '@/features/auth/session-store';
-import { useRawatVerifier } from '@/features/entry/StageContinue';
+import { useRawatContinue } from '@/features/entry/StageContinue';
+import { usePresentFieldWorkers, WorkerPicker } from '@/features/entry/WorkerPicker';
 import { formatRupiah } from '@/features/harvest/calc';
 import { continueTicket } from '@/features/harvest/stage';
 import { saveMaintenanceTicket } from '@/features/maintenance/actions';
@@ -41,7 +41,6 @@ export default function NewMaintenanceTicketScreen() {
   const workDate = clock.workDate();
   const { correctionOf } = useLocalSearchParams<{ correctionOf?: string }>();
   const afdelingIds = useSession((s) => s.user?.afdeling_ids ?? []);
-  const verifier = useRawatVerifier();
 
   const original = useMemo(
     () =>
@@ -75,14 +74,8 @@ export default function NewMaintenanceTicketScreen() {
   const subBloks = useTableQuery(['sub_blok', String(effBlockId)], () => (effBlockId ? subBloksOf(db, effBlockId) : []));
   const effSubBlokId = subBloks.some((x) => x.id === subBlokId) ? subBlokId : subBloks.length === 1 ? subBloks[0]!.id : null;
 
-  const day = useTableQuery(['attendance'], () => attendanceByEmployee(db, workDate));
-  const workers = useMemo(() => {
-    const ids = [...day.entries()]
-      .filter(([, d]) => isPresent(d) && !d.checkOut && d.checkIn!.gangId === effGangId)
-      .map(([id]) => id);
-    if (original && !ids.includes(original.workerEmployeeId)) ids.push(original.workerEmployeeId);
-    return ids.length ? db.select().from(employee).where(and(inArray(employee.id, ids))).orderBy(asc(employee.name)).all() : [];
-  }, [day, effGangId, db, original]);
+  const workers = usePresentFieldWorkers(workDate, effGangId, original?.workerEmployeeId);
+  const verifier = useRawatContinue(effGangId);
 
   // Versi master: berubah saat tarif/sub blok/karyawan/blok/produk tersinkron, memicu hitung ulang.
   const masterRev = useTableQuery(['harvest_rate', 'sub_blok', 'employee', 'block', 'product'], () => ({}));
@@ -234,18 +227,7 @@ export default function NewMaintenanceTicketScreen() {
         {t(`maintenance.unitHint.${estimate.unit}`)}
       </Txt>
 
-      <SectionTitle>{t('fertilization.worker')}</SectionTitle>
-      {workers.length === 0 ? (
-        <Card padded>
-          <Txt>{t('fertilization.noWorker')}</Txt>
-        </Card>
-      ) : (
-        <View style={styles.grid}>
-          {workers.map((w) => (
-            <Chip key={w.id} label={w.name} selected={w.id === workerId} onPress={() => setWorkerId(w.id)} />
-          ))}
-        </View>
-      )}
+      <WorkerPicker workers={workers} selectedId={workerId} onSelect={setWorkerId} />
 
       <Card padded>
         {order.map((u) => steppers[u])}

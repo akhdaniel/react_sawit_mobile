@@ -9,6 +9,7 @@ import {
   errorResponseSchema,
   MASTER_ENTITY_NAMES,
   masterResponseSchema,
+  presentWorkersResponseSchema,
   transactionsResponseSchema,
   verificationsResponseSchema,
   transactionStatusResponseSchema,
@@ -666,6 +667,19 @@ describe('verifikasi tiket (Lanjutkan)', () => {
     assert.equal(r.results[0]!.reason, 'target_not_found');
     const transport = await login('kerani.transport');
     assert.equal((await call('GET', '/verifications', undefined, transport.access_token)).status, 403);
+  });
+});
+
+describe('kehadiran hari ini', () => {
+  it('absensi dari HP lain di afdeling user, dengan status pulang; peran lain ditolak', async () => {
+    const panen = await login('mandor.panen');
+    await call('POST', '/transactions', { items: [checkIn(panen.user.id, 2, 2)] }, panen.access_token);
+    const rawat = await login('mandor.rawat');
+    const r = presentWorkersResponseSchema.parse((await call('GET', `/attendance/present?date=${today}`, undefined, rawat.access_token)).json);
+    assert.deepEqual(r.items, [{ employee_id: 2, gang_id: 2, att_status: 'hadir', checked_out: false }]);
+    assert.equal((await call('GET', '/attendance/present', undefined, rawat.access_token)).status, 400);
+    const transport = await login('kerani.transport');
+    assert.equal((await call('GET', `/attendance/present?date=${today}`, undefined, transport.access_token)).status, 403);
   });
 });
 

@@ -19,6 +19,7 @@ describe('migrasi', () => {
         'harvest_rate', 'material_usage', 'photo', 'pks', 'product', 'spb', 'spb_line', 'sub_blok', 'sync_cursor', 'tph',
         'stage_confirm', 'tx_document', 'upkeep', 'vehicle', 'verification_queue', 'work_plan',
         'inspection', 'inspection_finding', 'inspection_followup', 'inspection_item', 'inspection_template', 'open_finding',
+        'present_worker',
       ].sort(),
     );
   });
