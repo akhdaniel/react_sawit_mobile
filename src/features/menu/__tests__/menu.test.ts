@@ -4,7 +4,11 @@ const keys = (r: Parameters<typeof menuForRoles>[0]) => menuForRoles(r).map((m) 
 
 describe('menu per peran', () => {
   it('mandor panen', () => {
-    expect(keys(['mandor_panen'])).toEqual(['attendance', 'assignment', 'harvest', 'verification', 'daily_report', 'sync']);
+    expect(keys(['mandor_panen'])).toEqual(['attendance', 'assignment', 'harvest', 'verification', 'daily_report', 'inspection', 'findings', 'sync']);
+  });
+  it('inspektur hanya inspeksi, temuan, dan sinkron', () => {
+    expect(keys(['inspektur'])).toEqual(['inspection', 'findings', 'sync']);
+    expect(canAccess('findings', ['kerani_panen'])).toBe(true);
   });
   it('kerani transport hanya SPB + sinkron', () => {
     expect(keys(['kerani_transport'])).toEqual(['transport', 'sync']);
