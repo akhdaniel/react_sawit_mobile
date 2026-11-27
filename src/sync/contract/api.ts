@@ -21,7 +21,7 @@ export const serverTime = z.iso.datetime({ offset: true });
 /** UUID database Odoo: membedakan ganti alamat server yang sama dari pindah ke server lain. */
 export const serverId = z.string().min(1);
 
-export const ROLES = ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat', 'kerani_transport', 'asisten'] as const;
+export const ROLES = ['mandor_panen', 'kerani_panen', 'mandor_rawat', 'kerani_rawat', 'kerani_transport', 'asisten', 'inspektur'] as const;
 export const roleSchema = z.enum(ROLES);
 export type Role = z.infer<typeof roleSchema>;
 
@@ -48,6 +48,8 @@ export const authUserSchema = z.object({
   name: z.string().min(1),
   roles: z.array(roleSchema).min(1),
   afdeling_ids: z.array(id),
+  /** Karyawan pengguna (inspektur/pelaksana tindak lanjut); null = belum ditautkan, kosong = server lama. */
+  employee_id: id.nullish(),
 });
 export type AuthUser = z.infer<typeof authUserSchema>;
 

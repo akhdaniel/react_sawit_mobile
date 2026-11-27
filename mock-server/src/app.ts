@@ -19,7 +19,7 @@ import {
   type MasterEntityName,
   type TxItem,
 } from '../../src/sync/contract';
-import { afdelingOf, evaluate, summarize } from './rules';
+import { afdelingOf, evaluate, INFO_FLAGS, summarize } from './rules';
 import type { Store } from './store';
 
 export const API_PREFIX = '/xsm/v1';
@@ -158,6 +158,12 @@ export function createApp(store: Store) {
       });
       if (verdict.ok && item.type === 'approval_decision') {
         store.decisions.set(item.mobile_uuid, { targetUuid: item.payload.target_uuid, decision: item.payload.decision, userId });
+        const target = store.transactions.get(item.payload.target_uuid)?.item;
+        if (item.payload.decision === 'approve' && target?.type === 'inspection') store.postInspection(target);
+      }
+      // Inspeksi tanpa penanda yang menunggu asisten langsung "diposting" ke master temuan terbuka.
+      if (verdict.ok && (item.type === 'inspection' || item.type === 'inspection_followup') && verdict.flags.every((f) => INFO_FLAGS.has(f))) {
+        store.postInspection(item);
       }
       return verdict.ok
         ? { mobile_uuid: item.mobile_uuid, status: 'accepted' as const, server_id: serverId, reason: null }
@@ -192,7 +198,7 @@ export function createApp(store: Store) {
     const afdelingId = req.query.afdeling_id ? Number(req.query.afdeling_id) : undefined;
     const decided = new Set([...store.decisions.values()].map((d) => d.targetUuid));
     const items = [...store.transactions.values()]
-      .filter((t) => t.status === 'accepted' && t.flags.length > 0 && !decided.has(t.item.mobile_uuid))
+      .filter((t) => t.status === 'accepted' && t.flags.some((f) => !INFO_FLAGS.has(f)) && !decided.has(t.item.mobile_uuid))
       .filter((t) => {
         const afd = afdelingOf(store, t.item);
         return afd != null && user.afdeling_ids.includes(afd) && (afdelingId == null || afd === afdelingId);
@@ -209,6 +215,8 @@ export function createApp(store: Store) {
       if (store.decisions.has(d.mobile_uuid)) return { mobile_uuid: d.mobile_uuid, status: 'duplicate' as const, reason: null };
       if (!store.transactions.has(d.target_uuid)) return { mobile_uuid: d.mobile_uuid, status: 'rejected' as const, reason: 'target_not_found' };
       store.decisions.set(d.mobile_uuid, { targetUuid: d.target_uuid, decision: d.decision, userId: user.id });
+      const target = store.transactions.get(d.target_uuid)?.item;
+      if (d.decision === 'approve' && target?.type === 'inspection') store.postInspection(target);
       return { mobile_uuid: d.mobile_uuid, status: 'accepted' as const, reason: null };
     });
     res.json({ results });

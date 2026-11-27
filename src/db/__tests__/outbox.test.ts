@@ -13,7 +13,64 @@ import {
 import { attendance, harvestTicket, photo, spb, spbLine } from '@/db/schema';
 import { getDocument, postErrorOf } from '@/db/repositories/documents';
 import { createTestDb } from '@/test/db';
-import { attendanceRow, harvestTicketRow, photoRow, txCommon, uuid } from '@/test/fixtures';
+import { createFollowup, createInspection } from '@/db/repositories/inspection';
+import { attendanceRow, harvestTicketRow, inspectionItemIds, photoRow, seedInspectionMaster, seedMaster, txCommon, uuid } from '@/test/fixtures';
+
+describe('outbox inspeksi', () => {
+  it('inspeksi membawa temuan dari tabel anak; dikirim setelah material, tindak lanjut sesudahnya', () => {
+    const { db } = createTestDb();
+    seedMaster(db);
+    seedInspectionMaster(db);
+    const brd = inspectionItemIds(2).BRD!;
+    const inspectionUuid = uuid();
+    const findingUuid = uuid();
+    const findingPhoto = uuid();
+    createInspection(db, { ...txCommon({ mobileUuid: inspectionUuid }), status: 'queued' }, {
+      workDate: '2026-10-18',
+      templateId: 2,
+      blockId: 1,
+      tphId: null,
+      harvesterEmployeeId: null,
+      gangId: 1,
+      sampleSize: 10,
+      lines: [{ item_id: brd, value_num: 3, value_bool: null, value_text: null }],
+      findings: [
+        {
+          findingUuid,
+          itemId: brd,
+          category: 'brondolan_tinggal',
+          severity: 'major',
+          description: 'Brondolan',
+          rowNo: 4,
+          treeNo: null,
+          palmTreeQr: null,
+          lat: null,
+          lng: null,
+          photoIds: [findingPhoto],
+        },
+      ],
+      taksasi: null,
+      sensus: null,
+      photoIds: [],
+    });
+    createFollowup(db, { ...txCommon(), status: 'queued' }, { findingRef: findingUuid, actionText: 'Kutip ulang', done: true, photoIds: [] });
+    db.insert(attendance).values(attendanceRow()).run();
+    const { entries, invalid } = collectOutbox(db, 10, '1.0.0');
+    expect(invalid).toEqual([]);
+    expect(entries.map((e) => e.type)).toEqual(['attendance', 'inspection', 'inspection_followup']);
+    const item = entries[1]!.item;
+    expect(item.payload).toMatchObject({
+      inspection_type: 'mutu_panen',
+      template_id: 2,
+      gang_id: 1,
+      taksasi: null,
+      lines: [{ item_id: brd, value_num: 3 }],
+      findings: [{ finding_uuid: findingUuid, severity: 'major', row_no: 4, photo_ids: [findingPhoto] }],
+    });
+    expect((item.payload as { score_pct: number }).score_pct).toBeCloseTo(600 / 7, 5);
+    expect(entries[2]!.item.payload).toEqual({ finding_ref: findingUuid, action_text: 'Kutip ulang', done: true, photo_ids: [] });
+  });
+});
 
 describe('outbox', () => {
   it('membangun item kontrak dari baris lokal (payload + meta, tanpa kolom status)', () => {

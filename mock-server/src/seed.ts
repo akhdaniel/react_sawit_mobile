@@ -1,6 +1,6 @@
 /**
  * Data dummy deterministik: 1 estate, 3 afdeling, 40 blok (+ sub blok), 120 TPH, 200 pekerja + sopir,
- * plus gang, kegiatan, material, aturan dosis, kendaraan, tarif panen, PKS, rencana kerja,
+ * plus gang, kegiatan, material, aturan dosis, kendaraan, tarif panen, PKS, rencana kerja, template inspeksi,
  * dan akun uji per peran (struktur master ERP).
  */
 import type { AuthUser, MasterEntityName, MasterRecordInput, Role } from '../../src/sync/contract';
@@ -91,6 +91,7 @@ export function buildSeed(today = jakartaDate()): { master: SeedMaster; users: S
       const year = tbm ? 2023 : 1998 + Math.floor(rnd() * 20);
       const age = 2026 - year;
       const code = `${'ABC'[ai]}${String(k + 1).padStart(2, '0')}`;
+      const trees = 2000 + Math.floor(rnd() * 1500);
       block.push({
         id: blockId,
         code,
@@ -100,7 +101,10 @@ export function buildSeed(today = jakartaDate()): { master: SeedMaster; users: S
         status: tbm ? 'TBM' : 'TM',
         bjr_kg: tbm ? 0 : round(Math.min(26, 6 + age * 0.9 + rnd() * 2), 1),
         polygon_geojson: polygon(rect(lng0, lat0, lng0 + w, lat0 + h)),
-        tree_count: 2000 + Math.floor(rnd() * 1500),
+        tree_count: trees,
+        tree_count_productive: tbm ? 0 : trees - 40,
+        tree_count_sisipan: 30,
+        tree_count_dead: 10,
       });
       // Sub blok utama; tiap blok ke-5 punya dua sub blok dengan kelas medan berbeda.
       sub_blok.push({ id: sub_blok.length + 1, code: 'A', block_id: blockId, terrain_class_id: TERRAIN_FLAT });
@@ -261,26 +265,77 @@ export function buildSeed(today = jakartaDate()): { master: SeedMaster; users: S
     }
   }
 
-  const user = (id: number, login: string, name: string, roles: Role[], afdeling_ids: number[]): SeedUser => ({
+  // Template inspeksi bawaan ERP (data xerpium_plantation_inspection) dengan peran HP bawaan per jenis.
+  const inspection_template: SeedMaster['inspection_template'] = [
+    { id: 1, code: 'TKS-STD', name: 'Taksasi Panen Besok', inspection_type: 'taksasi', sample_unit: 'pokok', default_sample_size: 30, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen', 'kerani_panen'] },
+    { id: 2, code: 'MP-STD', name: 'Mutu Panen (Ancak)', inspection_type: 'mutu_panen', sample_unit: 'ancak', default_sample_size: 10, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen'] },
+    { id: 3, code: 'MR-STD', name: 'Mutu Rawat', inspection_type: 'mutu_rawat', sample_unit: 'titik', default_sample_size: 5, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_rawat'] },
+    { id: 4, code: 'SNS-STD', name: 'Sensus Pokok', inspection_type: 'sensus', sample_unit: 'blok', default_sample_size: 1, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'] },
+    { id: 5, code: 'HP-STD', name: 'Hama & Penyakit', inspection_type: 'hama_penyakit', sample_unit: 'pokok', default_sample_size: 20, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'] },
+    { id: 6, code: 'INF-STD', name: 'Infrastruktur Kebun', inspection_type: 'infrastruktur', sample_unit: 'titik', default_sample_size: 1, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'] },
+    { id: 7, code: 'UMUM-STD', name: 'Inspeksi Umum', inspection_type: 'umum', sample_unit: 'titik', default_sample_size: 1, pass_score_pct: 80, allowed_roles: ['inspektur', 'asisten', 'mandor_panen', 'mandor_rawat', 'kerani_panen', 'kerani_rawat'] },
+  ];
+  const inspection_item: SeedMaster['inspection_item'] = [
+    { id: 1, template_id: 2, sequence: 10, code: 'BRD', name: 'Brondolan tidak dikutip di piringan', value_type: 'count', select_options: [], uom: 'butir', weight: 1, bad_when: 'gt', threshold: 0, threshold_text: null, finding_category: 'brondolan_tinggal', finding_severity: 'minor', required: true },
+    { id: 2, template_id: 2, sequence: 20, code: 'MTG', name: 'Buah matang tidak dipanen', value_type: 'count', select_options: [], uom: 'janjang', weight: 2, bad_when: 'gt', threshold: 0, threshold_text: null, finding_category: 'buah_matang_tinggal', finding_severity: 'minor', required: true },
+    { id: 3, template_id: 2, sequence: 30, code: 'MTH', name: 'Buah mentah dipanen', value_type: 'count', select_options: [], uom: 'janjang', weight: 2, bad_when: 'gt', threshold: 0, threshold_text: null, finding_category: 'buah_mentah_dipanen', finding_severity: 'minor', required: true },
+    { id: 4, template_id: 2, sequence: 40, code: 'PLP', name: 'Pelepah tidak disusun di gawangan mati', value_type: 'bool', select_options: [], uom: null, weight: 1, bad_when: 'true', threshold: 0, threshold_text: null, finding_category: 'pelepah_tidak_disusun', finding_severity: 'minor', required: true },
+    { id: 5, template_id: 2, sequence: 50, code: 'TGK', name: 'Tangkai panjang (lebih dari 2 cm)', value_type: 'count', select_options: [], uom: 'janjang', weight: 1, bad_when: 'gt', threshold: 0, threshold_text: null, finding_category: 'tangkai_panjang', finding_severity: 'minor', required: true },
+    { id: 6, template_id: 3, sequence: 10, code: 'PRG', name: 'Kebersihan piringan', value_type: 'score_1_5', select_options: [], uom: null, weight: 2, bad_when: 'lt', threshold: 3, threshold_text: null, finding_category: 'piringan_kotor', finding_severity: 'minor', required: true },
+    { id: 7, template_id: 3, sequence: 20, code: 'GWG', name: 'Kebersihan gawangan', value_type: 'score_1_5', select_options: [], uom: null, weight: 1, bad_when: 'lt', threshold: 3, threshold_text: null, finding_category: 'gawangan_kotor', finding_severity: 'minor', required: true },
+    { id: 8, template_id: 3, sequence: 30, code: 'PPK', name: 'Pupuk tersebar merata di piringan', value_type: 'bool', select_options: [], uom: null, weight: 1, bad_when: 'false', threshold: 0, threshold_text: null, finding_category: 'pupuk_tidak_tepat', finding_severity: 'minor', required: false },
+    { id: 9, template_id: 5, sequence: 10, code: 'ULT', name: 'Serangan ulat api / ulat kantong', value_type: 'select', select_options: ['Tidak ada', 'Ringan', 'Sedang', 'Berat'], uom: null, weight: 1, bad_when: 'in', threshold: 0, threshold_text: 'Sedang|Berat', finding_category: 'hama', finding_severity: 'major', required: true },
+    { id: 10, template_id: 5, sequence: 20, code: 'TKS', name: 'Bekas serangan tikus baru', value_type: 'count', select_options: [], uom: 'pokok', weight: 1, bad_when: 'gt', threshold: 0, threshold_text: null, finding_category: 'hama', finding_severity: 'minor', required: true },
+    { id: 11, template_id: 5, sequence: 30, code: 'GND', name: 'Gejala Ganoderma (busuk pangkal batang)', value_type: 'bool', select_options: [], uom: null, weight: 2, bad_when: 'true', threshold: 0, threshold_text: null, finding_category: 'penyakit', finding_severity: 'major', required: true },
+    { id: 12, template_id: 6, sequence: 10, code: 'JLN', name: 'Kondisi jalan produksi', value_type: 'score_1_5', select_options: [], uom: null, weight: 2, bad_when: 'lt', threshold: 3, threshold_text: null, finding_category: 'infrastruktur_rusak', finding_severity: 'minor', required: true },
+    { id: 13, template_id: 6, sequence: 20, code: 'JMB', name: 'Kondisi jembatan / titi panen', value_type: 'score_1_5', select_options: [], uom: null, weight: 1, bad_when: 'lt', threshold: 3, threshold_text: null, finding_category: 'infrastruktur_rusak', finding_severity: 'minor', required: false },
+    { id: 14, template_id: 6, sequence: 30, code: 'PRT', name: 'Kondisi parit / drainase', value_type: 'score_1_5', select_options: [], uom: null, weight: 1, bad_when: 'lt', threshold: 3, threshold_text: null, finding_category: 'infrastruktur_rusak', finding_severity: 'minor', required: true },
+    { id: 15, template_id: 7, sequence: 10, code: 'CAT', name: 'Catatan pengamatan', value_type: 'text', select_options: [], uom: null, weight: 0, bad_when: null, threshold: 0, threshold_text: null, finding_category: null, finding_severity: 'minor', required: false },
+  ];
+
+  const open_finding: SeedMaster['open_finding'] = [];
+
+  // employee_id: karyawan seed yang ditautkan (mandor panen/rawat = mandor kemandoran pertama/rawat AFD01).
+  const user = (id: number, login: string, name: string, roles: Role[], afdeling_ids: number[], employee_id: number): SeedUser => ({
     id,
     login,
     password: TEST_PASSWORD,
     name,
     roles,
     afdeling_ids,
+    employee_id,
   });
   const users = [
-    user(101, 'mandor.panen', 'Slamet Riyadi', ['mandor_panen'], [1]),
-    user(102, 'kerani.panen', 'Rina Marlina', ['kerani_panen'], [1]),
-    user(103, 'mandor.rawat', 'Joko Susilo', ['mandor_rawat'], [1]),
-    user(104, 'kerani.transport', 'Dedi Kurniawan', ['kerani_transport'], [1, 2, 3]),
-    user(105, 'asisten', 'Ir. Hendra Gunawan', ['asisten'], [1]),
-    user(106, 'asisten2', 'Siti Aminah', ['asisten'], [2, 3]),
-    user(107, 'kerani.rawat', 'Wulan Sari', ['kerani_rawat'], [1]),
+    user(101, 'mandor.panen', 'Slamet Riyadi', ['mandor_panen'], [1], 1),
+    user(102, 'kerani.panen', 'Rina Marlina', ['kerani_panen'], [1], 13),
+    user(103, 'mandor.rawat', 'Joko Susilo', ['mandor_rawat'], [1], 4),
+    user(104, 'kerani.transport', 'Dedi Kurniawan', ['kerani_transport'], [1, 2, 3], 25),
+    user(105, 'asisten', 'Ir. Hendra Gunawan', ['asisten'], [1], 49),
+    user(106, 'asisten2', 'Siti Aminah', ['asisten'], [2, 3], 50),
+    user(107, 'kerani.rawat', 'Wulan Sari', ['kerani_rawat'], [1], 16),
+    user(108, 'inspektur', 'Andi Prasetyo', ['inspektur'], [1, 2, 3], 61),
   ];
 
   return {
-    master: { estate, afdeling, block, tph, employee, gang, activity, product, dosage_rule, vehicle, work_plan, sub_blok, harvest_rate, pks },
+    master: {
+      estate,
+      afdeling,
+      block,
+      tph,
+      employee,
+      gang,
+      activity,
+      product,
+      dosage_rule,
+      vehicle,
+      work_plan,
+      sub_blok,
+      harvest_rate,
+      pks,
+      inspection_template,
+      inspection_item,
+      open_finding,
+    },
     users,
   };
 }

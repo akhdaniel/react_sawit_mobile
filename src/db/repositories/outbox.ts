@@ -4,7 +4,8 @@
  * - Antrean = status queued + sent (sent = sudah dikirim tetapi hasilnya belum pasti, mis.
  *   koneksi putus di tengah; dikirim ulang dengan aman karena idempoten per mobile_uuid).
  * - Urutan kirim mengikuti dependensi bisnis: absen → penugasan → panen → lanjutkan tahap tiket → SPB →
- *   pemupukan → perawatan → rawat & material (versi lama) → laporan → approval, lalu waktu pembuatan.
+ *   pemupukan → perawatan → rawat & material (versi lama) → inspeksi → tindak lanjut temuan → laporan →
+ *   approval, lalu waktu pembuatan.
  * - Hanya kolom status/meta server yang diperbarui — kolom bisnis tidak pernah disentuh.
  */
 import { and, asc, eq, getTableColumns, gte, inArray, isNotNull, ne } from 'drizzle-orm';
@@ -19,7 +20,18 @@ import {
   type TxItem,
   type TxTypeName,
 } from '../../sync/contract';
-import { fertilizationTicket, harvestTicket, maintenanceTicket, photo, spb, spbLine, transactionTables, txDocument, type TransactionType } from '../schema';
+import {
+  fertilizationTicket,
+  harvestTicket,
+  inspectionFinding,
+  maintenanceTicket,
+  photo,
+  spb,
+  spbLine,
+  transactionTables,
+  txDocument,
+  type TransactionType,
+} from '../schema';
 import type { AppDatabase } from '../types';
 import { FINAL_DOCUMENT_STATES, upsertDocument } from './documents';
 
@@ -35,6 +47,9 @@ export const TX_PUSH_ORDER: readonly TransactionType[] = [
   'spb',
   'upkeep',
   'material_usage',
+  // Seperti di server: setelah material, sebelum laporan; tindak lanjut sesudah inspeksi yang membuat temuannya.
+  'inspection',
+  'inspection_followup',
   'daily_report',
   'approval_decision',
 ];
@@ -89,6 +104,26 @@ export function buildTxItem(
         loose_fruit_kg: l.looseFruitKg,
       }));
     }
+  }
+  if (type === 'inspection') {
+    payload.findings = db
+      .select()
+      .from(inspectionFinding)
+      .where(eq(inspectionFinding.inspectionUuid, String(named.mobile_uuid)))
+      .all()
+      .map((f) => ({
+        finding_uuid: f.findingUuid,
+        item_id: f.itemId,
+        category: f.category,
+        severity: f.severity,
+        description: f.description,
+        row_no: f.rowNo,
+        tree_no: f.treeNo,
+        palm_tree_qr: f.palmTreeQr,
+        lat: f.lat,
+        lng: f.lng,
+        photo_ids: f.photoIds,
+      }));
   }
   const meta: Row = { app_version: appVersion };
   for (const k of META_KEYS) meta[k] = named[k];

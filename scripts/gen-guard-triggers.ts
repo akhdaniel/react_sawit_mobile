@@ -50,21 +50,27 @@ BEGIN SELECT RAISE(ABORT, 'TX_APPEND_ONLY'); END;`,
   return out;
 }
 
-function spbLineGuards(drop: boolean): string[] {
+/** Tabel anak yang menjadi bagian payload induknya: terkunci begitu induknya terkirim. */
+const CHILD_TABLES = [
+  { table: 'spb_line', parent: 'spb', fk: 'spb_uuid' },
+  { table: 'inspection_finding', parent: 'inspection', fk: 'inspection_uuid' },
+] as const;
+
+function childGuards({ table, parent, fk }: (typeof CHILD_TABLES)[number], drop: boolean): string[] {
   const parentLocked = (ref: 'NEW' | 'OLD') =>
-    `EXISTS (SELECT 1 FROM spb WHERE spb.mobile_uuid = ${ref}.spb_uuid AND spb.status NOT IN (${list(MUTABLE_STATUSES)}))`;
+    `EXISTS (SELECT 1 FROM ${parent} WHERE ${parent}.mobile_uuid = ${ref}.${fk} AND ${parent}.status NOT IN (${list(MUTABLE_STATUSES)}))`;
   const out: string[] = [];
   if (drop) {
-    out.push(...['insert', 'update', 'delete'].map((n) => `DROP TRIGGER IF EXISTS \`spb_line_guard_${n}\`;`));
+    out.push(...['insert', 'update', 'delete'].map((n) => `DROP TRIGGER IF EXISTS \`${table}_guard_${n}\`;`));
   }
   out.push(
-    `CREATE TRIGGER \`spb_line_guard_insert\` BEFORE INSERT ON \`spb_line\`
+    `CREATE TRIGGER \`${table}_guard_insert\` BEFORE INSERT ON \`${table}\`
 WHEN ${parentLocked('NEW')}
 BEGIN SELECT RAISE(ABORT, 'TX_APPEND_ONLY'); END;`,
-    `CREATE TRIGGER \`spb_line_guard_update\` BEFORE UPDATE ON \`spb_line\`
+    `CREATE TRIGGER \`${table}_guard_update\` BEFORE UPDATE ON \`${table}\`
 WHEN ${parentLocked('OLD')} OR ${parentLocked('NEW')}
 BEGIN SELECT RAISE(ABORT, 'TX_APPEND_ONLY'); END;`,
-    `CREATE TRIGGER \`spb_line_guard_delete\` BEFORE DELETE ON \`spb_line\`
+    `CREATE TRIGGER \`${table}_guard_delete\` BEFORE DELETE ON \`${table}\`
 WHEN ${parentLocked('OLD')}
 BEGIN SELECT RAISE(ABORT, 'TX_APPEND_ONLY'); END;`,
   );
@@ -95,7 +101,7 @@ export function buildGuardSql(drop = false): string {
     const cfg = getTableConfig(table);
     statements.push(...guardsFor(cfg.name, cfg.columns.map((c) => c.name), drop));
   }
-  statements.push(...spbLineGuards(drop), ...photoGuards(drop));
+  statements.push(...CHILD_TABLES.flatMap((child) => childGuards(child, drop)), ...photoGuards(drop));
   return `-- DIHASILKAN OLEH scripts/gen-guard-triggers.ts — jangan diedit manual.\n${statements.join(BREAK)}\n`;
 }
 

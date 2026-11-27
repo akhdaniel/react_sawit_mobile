@@ -37,6 +37,10 @@ export const block = sqliteTable(
     polygonGeojson: text('polygon_geojson'),
     /** Jumlah pokok blok (batas pokok dipupuk per tiket); null/0 = tidak dibatasi. */
     treeCount: integer('tree_count'),
+    /** Rincian pokok master (taksasi: pokok produktif; sensus: pembanding). Null dari server lama. */
+    treeCountProductive: integer('tree_count_productive'),
+    treeCountSisipan: integer('tree_count_sisipan'),
+    treeCountDead: integer('tree_count_dead'),
   },
   (t) => [index('block_afdeling_idx').on(t.afdelingId)],
 );
@@ -81,6 +85,8 @@ export const gang = sqliteTable(
     afdelingId: integer('afdeling_id').notNull(),
     /** 'panen' / 'rawat'; null pada data dari server versi lama. */
     gangType: text('gang_type', { enum: ['panen', 'rawat'] }),
+    /** Mandor pengganti (ikut dianggap mandor kemandoran). */
+    actingForemanEmployeeId: integer('acting_foreman_employee_id'),
   },
   (t) => [index('gang_afdeling_idx').on(t.afdelingId)],
 );
@@ -183,6 +189,65 @@ export const pks = sqliteTable('pks', {
   estateId: integer('estate_id'),
 });
 
+/** Template checklist inspeksi ERP. */
+export const inspectionTemplate = sqliteTable('inspection_template', {
+  id: integer('id').primaryKey(),
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+  inspectionType: text('inspection_type', {
+    enum: ['taksasi', 'mutu_panen', 'mutu_rawat', 'sensus', 'hama_penyakit', 'infrastruktur', 'umum'],
+  }).notNull(),
+  sampleUnit: text('sample_unit').notNull(),
+  defaultSampleSize: integer('default_sample_size').notNull(),
+  passScorePct: real('pass_score_pct').notNull(),
+  /** Peran HP yang boleh membuat inspeksi dengan template ini. */
+  allowedRoles: text('allowed_roles', { mode: 'json' }).$type<string[]>().notNull(),
+});
+
+/** Item checklist template inspeksi (aturan "buruk", bobot skor, kategori & tingkat temuan bawaan). */
+export const inspectionItem = sqliteTable(
+  'inspection_item',
+  {
+    id: integer('id').primaryKey(),
+    templateId: integer('template_id').notNull(),
+    sequence: integer('sequence').notNull(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    valueType: text('value_type', { enum: ['count', 'number', 'bool', 'score_1_5', 'select', 'text'] }).notNull(),
+    selectOptions: text('select_options', { mode: 'json' }).$type<string[]>().notNull(),
+    uom: text('uom'),
+    weight: real('weight').notNull(),
+    badWhen: text('bad_when', { enum: ['gt', 'lt', 'true', 'false', 'in'] }),
+    threshold: real('threshold').notNull(),
+    thresholdText: text('threshold_text'),
+    findingCategory: text('finding_category'),
+    findingSeverity: text('finding_severity', { enum: ['minor', 'major', 'critical'] }).notNull(),
+    required: integer('required', { mode: 'boolean' }).notNull(),
+  },
+  (t) => [index('inspection_item_template_idx').on(t.templateId)],
+);
+
+/** Temuan ERP yang masih terbuka/ditindaklanjuti (bahan tindak lanjut offline). */
+export const openFinding = sqliteTable(
+  'open_finding',
+  {
+    id: integer('id').primaryKey(),
+    /** UUID temuan dari HP (null untuk temuan yang dibuat di ERP). */
+    mobileUuid: text('mobile_uuid'),
+    inspectionId: integer('inspection_id'),
+    blokId: integer('blok_id').notNull(),
+    category: text('category').notNull(),
+    severity: text('severity', { enum: ['minor', 'major', 'critical'] }).notNull(),
+    description: text('description').notNull(),
+    rowNo: integer('row_no'),
+    treeNo: integer('tree_no'),
+    dueDate: text('due_date'),
+    picEmployeeId: integer('pic_employee_id'),
+    state: text('state', { enum: ['open', 'in_progress'] }).notNull(),
+  },
+  (t) => [index('open_finding_blok_idx').on(t.blokId), index('open_finding_mobile_uuid_idx').on(t.mobileUuid)],
+);
+
 export const workPlan = sqliteTable(
   'work_plan',
   {
@@ -224,6 +289,9 @@ export const masterTables = {
   sub_blok: subBlok,
   harvest_rate: harvestRate,
   pks,
+  inspection_template: inspectionTemplate,
+  inspection_item: inspectionItem,
+  open_finding: openFinding,
 } as const;
 
 export type MasterEntity = keyof typeof masterTables;

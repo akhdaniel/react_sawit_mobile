@@ -269,6 +269,89 @@ export const stageConfirm = sqliteTable(
   ],
 );
 
+/** Isian satu item checklist, disimpan dalam bentuk kontrak API (dikirim apa adanya). */
+export interface InspectionLine {
+  item_id: number;
+  value_num: number | null;
+  value_bool: boolean | null;
+  value_text: string | null;
+}
+
+export interface InspectionTaksasi {
+  sampled_trees: number;
+  ripe_bunches_counted: number;
+  harvest_date_target: string;
+}
+
+export interface InspectionSensus {
+  tree_count_productive: number;
+  tree_count_sisipan: number;
+  tree_count_dead: number;
+  tree_count_abnormal: number;
+}
+
+/** Inspeksi lapangan (struktur inspeksi ERP); temuannya di tabel anak inspection_finding. */
+export const inspection = sqliteTable(
+  'inspection',
+  {
+    ...txColumns(),
+    workDate: text('work_date').notNull(),
+    inspectionType: text('inspection_type', {
+      enum: ['taksasi', 'mutu_panen', 'mutu_rawat', 'sensus', 'hama_penyakit', 'infrastruktur', 'umum'],
+    }).notNull(),
+    templateId: integer('template_id').notNull(),
+    blockId: integer('block_id').notNull(),
+    tphId: integer('tph_id'),
+    harvesterEmployeeId: integer('harvester_employee_id'),
+    gangId: integer('gang_id'),
+    sampleSize: integer('sample_size').notNull(),
+    lines: text('lines', { mode: 'json' }).$type<InspectionLine[]>().notNull(),
+    taksasi: text('taksasi', { mode: 'json' }).$type<InspectionTaksasi>(),
+    sensus: text('sensus', { mode: 'json' }).$type<InspectionSensus>(),
+    /** Skor dihitung HP dengan rumus inspeksi ERP; server menghitung ulang. */
+    scorePct: real('score_pct').notNull(),
+    photoIds: text('photo_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  },
+  (t) => [index('inspection_date_idx').on(t.workDate), index('inspection_status_idx').on(t.status)],
+);
+
+/** Temuan inspeksi — bagian dari payload inspeksi, ikut aturan append-only induknya (seperti spb_line). */
+export const inspectionFinding = sqliteTable(
+  'inspection_finding',
+  {
+    /** UUID temuan dari HP; koreksi inspeksi boleh membawa ulang temuan yang sama (kunci = inspeksi + temuan). */
+    findingUuid: text('finding_uuid').notNull(),
+    inspectionUuid: text('inspection_uuid').notNull(),
+    itemId: integer('item_id'),
+    category: text('category').notNull(),
+    severity: text('severity', { enum: ['minor', 'major', 'critical'] }).notNull(),
+    description: text('description').notNull(),
+    rowNo: integer('row_no'),
+    treeNo: integer('tree_no'),
+    palmTreeQr: text('palm_tree_qr'),
+    lat: real('lat'),
+    lng: real('lng'),
+    photoIds: text('photo_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.inspectionUuid, t.findingUuid] }),
+    index('inspection_finding_uuid_idx').on(t.findingUuid),
+  ],
+);
+
+/** Tindak lanjut temuan dari HP; `finding_ref` = finding_uuid temuan HP atau `id:<id ERP>`. */
+export const inspectionFollowup = sqliteTable(
+  'inspection_followup',
+  {
+    ...txColumns(),
+    findingRef: text('finding_ref').notNull(),
+    actionText: text('action_text').notNull(),
+    done: integer('done', { mode: 'boolean' }).notNull(),
+    photoIds: text('photo_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  },
+  (t) => [index('inspection_followup_finding_idx').on(t.findingRef), index('inspection_followup_status_idx').on(t.status)],
+);
+
 export const photo = sqliteTable(
   'photo',
   {
@@ -304,6 +387,8 @@ export const transactionTables = {
   daily_report: dailyReport,
   approval_decision: approvalDecision,
   stage_confirm: stageConfirm,
+  inspection,
+  inspection_followup: inspectionFollowup,
 } as const;
 
 export type TransactionType = keyof typeof transactionTables;

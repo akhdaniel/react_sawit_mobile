@@ -2,7 +2,9 @@
  * Validasi bisnis sisi server (cermin aturan di HP) untuk POST /transactions.
  * Server tetap menjadi penentu akhir: transaksi yang lolos zod bisa saja ditolak di sini.
  */
-import { WORK_TYPE_MATERIALS, WORK_TYPE_UNITS, type TxItem } from '../../src/sync/contract';
+import { computeScore, lineError, SCORE_TOLERANCE, taksasiValid, type CalcItem } from '../../src/features/inspection/calc';
+import { isInsideGeojson } from '../../src/lib/geo';
+import { FINDING_CATEGORIES, WORK_TYPE_MATERIALS, WORK_TYPE_UNITS, type TxItem } from '../../src/sync/contract';
 import type { Store } from './store';
 
 type Block = { id: number; afdeling_id: number; bjr_kg: number; ha: number };
@@ -16,6 +18,50 @@ export interface RuleResult {
 }
 
 const EST_KG_TOLERANCE = 0.5;
+/** Penanda inspeksi yang hanya informasi (tidak masuk antrean asisten), sama dengan server. */
+export const INFO_FLAGS = new Set(['major_finding', 'low_score', 'self_inspection', 'outside_block']);
+const FOLLOWUP_ROLES = ['mandor_panen', 'mandor_rawat', 'asisten', 'inspektur'];
+
+type InspectionTemplate = { id: number; inspection_type: string; pass_score_pct: number; allowed_roles: string[] };
+type InspectionItem = {
+  id: number;
+  template_id: number;
+  value_type: CalcItem['valueType'];
+  weight: number;
+  bad_when: CalcItem['badWhen'] | null;
+  threshold: number;
+  threshold_text: string | null;
+  select_options: string[];
+  required: boolean;
+};
+
+const toCalcItem = (i: InspectionItem): CalcItem => ({
+  id: i.id,
+  valueType: i.value_type,
+  weight: i.weight,
+  badWhen: i.bad_when ?? null,
+  threshold: i.threshold,
+  thresholdText: i.threshold_text,
+  selectOptions: i.select_options,
+  required: i.required,
+});
+
+/** Temuan sudah dikenal: di master temuan terbuka, atau di inspeksi diterima (kecuali inspeksi yang sedang dikoreksi). */
+function findingTaken(store: Store, findingUuid: string, correctionOf: string | null): boolean {
+  if (store.listMaster<{ id: number; mobile_uuid?: string | null }>('open_finding').some((f) => f.mobile_uuid === findingUuid)) return true;
+  return store
+    .acceptedOfType('inspection')
+    .some((i) => i.mobile_uuid !== correctionOf && i.payload.findings.some((f) => f.finding_uuid === findingUuid));
+}
+
+/** Temuan yang dirujuk tindak lanjut: id ERP di master, atau finding_uuid di master/inspeksi diterima. */
+export function followupTarget(store: Store, ref: string): { blockId: number } | null {
+  const master = store.listMaster<{ id: number; mobile_uuid?: string | null; blok_id: number }>('open_finding');
+  const byRef = ref.startsWith('id:') ? master.find((f) => f.id === Number(ref.slice(3))) : master.find((f) => f.mobile_uuid === ref);
+  if (byRef) return { blockId: byRef.blok_id };
+  const inspection = store.acceptedOfType('inspection').find((i) => i.payload.findings.some((f) => f.finding_uuid === ref));
+  return inspection ? { blockId: inspection.payload.block_id } : null;
+}
 
 function exists(store: Store, entity: Parameters<Store['getMaster']>[0], id: number | null | undefined) {
   return id == null || store.getMaster(entity, id) != null;
@@ -231,6 +277,74 @@ export function evaluate(store: Store, item: TxItem, userId: number): RuleResult
       if (!store.transactions.has(item.payload.target_uuid)) return { ok: false, reason: 'target_not_found', flags };
       return { ok: true, flags };
     }
+    case 'inspection': {
+      // Cermin xerpium_sawit_mobile_inspection _rule_inspection.
+      const p = item.payload;
+      const user = store.users.find((u) => u.id === userId);
+      const template = store.getMaster<InspectionTemplate>('inspection_template', p.template_id);
+      const block = store.getMaster<Block & { polygon_geojson?: unknown; tree_count_productive?: number | null }>('block', p.block_id);
+      const tph = p.tph_id != null ? store.getMaster<{ id: number; block_id: number }>('tph', p.tph_id) : null;
+      if (!template || !block || (p.tph_id != null && !tph)) return { ok: false, reason: 'unknown_master_ref', flags };
+      if (!exists(store, 'employee', p.harvester_employee_id) || !exists(store, 'gang', p.gang_id)) return { ok: false, reason: 'unknown_master_ref', flags };
+      if (template.inspection_type !== p.inspection_type) return { ok: false, reason: 'template_type_mismatch', flags };
+      if (tph && tph.block_id !== p.block_id) return { ok: false, reason: 'tph_block_mismatch', flags };
+      if (!template.allowed_roles.some((r) => user?.roles.includes(r as never))) return { ok: false, reason: 'role_not_allowed', flags };
+      if (!user?.employee_id) return { ok: false, reason: 'no_employee', flags };
+      const items = store
+        .listMaster<InspectionItem>('inspection_item')
+        .filter((i) => i.template_id === template.id)
+        .map(toCalcItem);
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const seen = new Set<number>();
+      for (const line of p.lines) {
+        const it = byId.get(line.item_id);
+        if (!it) return { ok: false, reason: 'item_not_in_template', flags };
+        if (seen.has(it.id)) return { ok: false, reason: 'duplicate_item', flags };
+        seen.add(it.id);
+        if (lineError(it, line)) return { ok: false, reason: 'invalid_value', flags };
+      }
+      if (p.inspection_type === 'taksasi') {
+        if (!p.taksasi) return { ok: false, reason: 'taksasi_required', flags };
+        if (!taksasiValid(p.taksasi)) return { ok: false, reason: 'invalid_taksasi', flags };
+        if (!block.tree_count_productive) return { ok: false, reason: 'block_without_productive_trees', flags };
+      }
+      if (p.inspection_type === 'sensus') {
+        const c = p.sensus;
+        if (!c || !(c.tree_count_productive + c.tree_count_sisipan + c.tree_count_dead + c.tree_count_abnormal)) {
+          return { ok: false, reason: 'sensus_required', flags };
+        }
+      }
+      if (p.inspection_type === 'mutu_panen' && p.harvester_employee_id != null && !checkedIn(store, p.harvester_employee_id, p.work_date)) {
+        return { ok: false, reason: 'no_check_in', flags };
+      }
+      const uuids = p.findings.map((f) => f.finding_uuid);
+      if (new Set(uuids).size !== uuids.length) return { ok: false, reason: 'duplicate_finding_uuid', flags };
+      for (const f of p.findings) {
+        if (!(FINDING_CATEGORIES as readonly string[]).includes(f.category)) return { ok: false, reason: 'invalid_category', flags };
+        if (f.item_id != null && !byId.has(f.item_id)) return { ok: false, reason: 'item_not_in_template', flags };
+        if (findingTaken(store, f.finding_uuid, item.meta.correction_of)) return { ok: false, reason: 'duplicate_finding_uuid', flags };
+      }
+      const score = computeScore(items, p.lines, template.pass_score_pct);
+      if (score.missingRequired.length) return { ok: false, reason: 'required_item_missing', flags };
+      if (Math.abs(score.scorePct - p.score_pct) > SCORE_TOLERANCE) return { ok: false, reason: 'score_mismatch', flags };
+      const severities = new Set(p.findings.map((f) => f.severity));
+      if (severities.has('major')) flags.push('major_finding');
+      if (severities.has('critical')) flags.push('critical_finding');
+      if (score.result === 'fail') flags.push('low_score');
+      const gangId = p.gang_id ?? (p.harvester_employee_id != null ? store.getMaster<{ id: number; gang_id?: number | null }>('employee', p.harvester_employee_id)?.gang_id : null);
+      const g = gangId ? store.getMaster<{ id: number; foreman_employee_id?: number | null; acting_foreman_employee_id?: number | null }>('gang', gangId) : null;
+      if (g && (g.foreman_employee_id === user.employee_id || g.acting_foreman_employee_id === user.employee_id)) flags.push('self_inspection');
+      if (item.meta.lat != null && item.meta.lng != null && isInsideGeojson(item.meta.lat, item.meta.lng, block.polygon_geojson) === false) {
+        flags.push('outside_block');
+      }
+      return { ok: true, flags };
+    }
+    case 'inspection_followup': {
+      const roles = store.users.find((u) => u.id === userId)?.roles ?? [];
+      if (!FOLLOWUP_ROLES.some((r) => roles.includes(r as never))) return { ok: false, reason: 'role_not_allowed', flags };
+      if (!followupTarget(store, item.payload.finding_ref)) return { ok: false, reason: 'finding_not_found', flags };
+      return { ok: true, flags };
+    }
     case 'stage_confirm': {
       // Mock tidak punya tahap ERP: Lanjutkan cukup merujuk tiket yang dikenal (server_id tiket = tiket ERP).
       const p = item.payload;
@@ -253,6 +367,10 @@ export function afdelingOf(store: Store, item: TxItem): number | null {
   if (item.type === 'material_usage') {
     const up = store.transactions.get(item.payload.upkeep_uuid);
     return up ? afdelingOf(store, up.item) : null;
+  }
+  if (item.type === 'inspection_followup') {
+    const target = followupTarget(store, item.payload.finding_ref);
+    return target ? (store.getMaster<Block>('block', target.blockId)?.afdeling_id ?? null) : null;
   }
   return null;
 }
@@ -281,5 +399,11 @@ export function summarize(item: TxItem): string {
       return `Keputusan ${item.payload.decision} untuk ${item.payload.target_uuid}`;
     case 'stage_confirm':
       return `Lanjutkan tiket ${item.payload.target_uuid ?? `#${item.payload.core_ticket_id}`}`;
+    case 'inspection': {
+      const critical = item.payload.findings.filter((f) => f.severity === 'critical').length;
+      return `Inspeksi ${item.payload.inspection_type} blok #${item.payload.block_id}: skor ${item.payload.score_pct.toFixed(1)}%, ${item.payload.findings.length} temuan (${critical} kritis)`;
+    }
+    case 'inspection_followup':
+      return `Tindak lanjut temuan ${item.payload.finding_ref} (${item.payload.done ? 'selesai' : 'berjalan'}): ${item.payload.action_text.slice(0, 80)}`;
   }
 }

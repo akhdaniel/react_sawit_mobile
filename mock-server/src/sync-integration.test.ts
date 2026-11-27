@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
+import { createFollowup, createInspection, listOpenFindings } from '../../src/db/repositories/inspection';
 import * as schema from '../../src/db/schema';
 import type { AppDatabase } from '../../src/db/types';
 import { MemoryKV } from '../../src/lib/secure-kv';
@@ -150,6 +151,73 @@ describe('sync engine ↔ mock server', () => {
     ]);
     assert.equal(resend.results[0]!.status, 'duplicate');
     assert.equal(store.transactions.size, before);
+  });
+
+  it('inspeksi offline → sinkron → temuan kembali sebagai master → tindak lanjut menutupnya', async () => {
+    const db = createDb();
+    const { userId, syncApi } = await client();
+    const deps: SyncDeps = {
+      db,
+      api: syncApi,
+      nowIso: () => new Date(serverNow).toISOString(),
+      workDate: () => today,
+      appVersion: '1.0.0',
+      battery: async () => 0.5,
+      photoFileExists: () => true,
+    };
+    // Master (template inspeksi) dulu, seperti HP yang sudah pernah sinkron.
+    assert.deepEqual((await runSync(deps)).errors, []);
+    const brd = db.select().from(schema.inspectionItem).all().find((i) => i.templateId === 2 && i.code === 'BRD')!;
+
+    const inspectionUuid = randomUUID();
+    const findingUuid = randomUUID();
+    const photoId = randomUUID();
+    db.insert(schema.photo)
+      .values({ id: photoId, localUri: 'file:///temuan.jpg', sha256: photoSha, sizeBytes: photoBytes.length, takenTrustedAt: new Date(serverNow).toISOString() })
+      .run();
+    createInspection(db, { ...common(userId), mobileUuid: inspectionUuid }, {
+      workDate: today,
+      templateId: 2,
+      blockId: 1,
+      tphId: null,
+      harvesterEmployeeId: null,
+      gangId: null,
+      sampleSize: 10,
+      lines: [{ item_id: brd.id, value_num: 4, value_bool: null, value_text: null }],
+      findings: [
+        {
+          findingUuid,
+          itemId: brd.id,
+          category: 'brondolan_tinggal',
+          severity: 'major',
+          description: 'Brondolan tidak dikutip',
+          rowNo: 3,
+          treeNo: 9,
+          palmTreeQr: null,
+          lat: null,
+          lng: null,
+          photoIds: [photoId],
+        },
+      ],
+      taksasi: null,
+      sensus: null,
+      photoIds: [],
+    });
+
+    const r1 = await runSync(deps);
+    assert.deepEqual(r1.errors, []);
+    assert.equal(r1.push.accepted, 1);
+    // Inspeksi langsung diposting ERP saat diterima: status posted di sinkron yang sama.
+    assert.equal(db.select().from(schema.inspection).get()!.status, 'posted');
+    assert.equal(store.photos.get(photoId)?.transactionUuid, inspectionUuid);
+    const open = listOpenFindings(db, [1]).find((f) => f.ref === findingUuid)!;
+    assert.equal(open.source, 'server');
+
+    createFollowup(db, { ...common(userId), mobileUuid: randomUUID() }, { findingRef: findingUuid, actionText: 'Kutip ulang', done: true, photoIds: [] });
+    const r2 = await runSync(deps);
+    assert.deepEqual(r2.errors, []);
+    assert.equal(r2.push.accepted, 1);
+    assert.equal(listOpenFindings(db, [1]).some((f) => f.ref === findingUuid), false);
   });
 
   it('server mati → offline, data tetap di antrean', async () => {
