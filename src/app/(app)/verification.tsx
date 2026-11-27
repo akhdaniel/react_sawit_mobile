@@ -23,6 +23,7 @@ import {
   type VerificationRow,
 } from '@/db/repositories/verification';
 import { useSession } from '@/features/auth/session-store';
+import { useVerifyLabel } from '@/features/entry/StageContinue';
 import { continueQueued } from '@/features/harvest/stage';
 import { useRefresh } from '@/features/sync/useRefresh';
 import { t } from '@/i18n/id';
@@ -96,6 +97,8 @@ export default function VerificationScreen() {
   );
   const total = harvest.length + fertilization.length + maintenance.length;
   const [open, setOpen] = useState<Open | null>(null);
+  const panenLabel = useVerifyLabel('panen');
+  const rawatLabel = useVerifyLabel('rawat');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -203,7 +206,12 @@ export default function VerificationScreen() {
                 <Txt style={{ fontWeight: '700' }}>{value}</Txt>
               </View>
             ))}
-            <Button icon="check-decagram" label={t('harvest.continue')} busy={busy} onPress={() => void submit()} />
+            <Button
+              icon="check-decagram"
+              label={open.type === 'harvest_ticket' ? panenLabel : rawatLabel}
+              busy={busy}
+              onPress={() => void submit()}
+            />
           </>
         )}
       </Sheet>
